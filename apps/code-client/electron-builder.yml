@@ -1,0 +1,20 @@
+appId: com.hcode.codeclient
+productName: Code Client
+asar: true
+directories:
+  output: release
+files:
+  - dist/**/*
+  - package.json
+artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+win:
+  target:
+    - nsis
+linux:
+  category: Development
+  target:
+    - AppImage
