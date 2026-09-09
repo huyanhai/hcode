@@ -4,12 +4,12 @@ import App from './App.vue'
 import { i18n } from './i18n'
 import { router } from './router'
 import { usePreferencesStore } from './stores/preferences'
-import './styles/main.scss'
+import './styles/main.css'
 
 const app = createApp(App)
 app.use(createPinia())
 app.use(i18n)
-// app.use(router)
+app.use(router)
 
 const preferences = usePreferencesStore()
 watch(() => preferences.locale, (locale) => {

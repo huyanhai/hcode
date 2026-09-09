@@ -1,7 +1,10 @@
-import { app, BrowserWindow, Menu, session } from "electron";
+import { app, Menu, session, BrowserWindow } from "electron";
 import { join } from "node:path";
 
 async function createWindow(): Promise<void> {
+  const isMac = process.platform === "darwin";
+
+
   const window = new BrowserWindow({
     title: "Code Client",
     width: 1200,
@@ -9,12 +12,15 @@ async function createWindow(): Promise<void> {
     minWidth: 720,
     minHeight: 520,
     show: false,
-    transparent: true, // 关键：开启窗口透明
+    transparent: isMac ? true : false, // 关键：开启窗口透明
     frame: false, // 关键：移除默认窗口边框和标题栏
     titleBarStyle: "hiddenInset", // 或 'hidden' 或 'customButtonsOnHover'
-    vibrancy: "under-page", // 可选：毛玻璃效果
+    vibrancy: isMac ? "under-window" : undefined, 
+    // Windows 11 原生毛玻璃/云母 API (可选: 'acrylic' | 'mica' | 'tabbed' | 'none')
+    backgroundMaterial: isMac ? undefined : "mica",
     visualEffectState: "active",
     backgroundColor: "#00000000",
+    roundedCorners: true,
     webPreferences: {
       preload: join(__dirname, "../preload/preload.cjs"),
       contextIsolation: true,
@@ -23,7 +29,8 @@ async function createWindow(): Promise<void> {
     },
   });
 
-  window.webContents.openDevTools({ mode: "right" });
+
+  window.webContents.openDevTools({ mode: "detach" });
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
@@ -62,10 +69,6 @@ app
         { role: "windowMenu" },
       ]),
     );
-
-    app.commandLine.appendSwitch("enable-gpu-rasterization");
-    app.commandLine.appendSwitch("enable-accelerated-2d-canvas");
-
     
     await createWindow();
 
