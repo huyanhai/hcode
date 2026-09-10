@@ -16,10 +16,8 @@ async function createWindow(): Promise<void> {
     frame: false, // 关键：移除默认窗口边框和标题栏
     titleBarStyle: "hiddenInset", // 或 'hidden' 或 'customButtonsOnHover'
     vibrancy: isMac ? "under-window" : undefined, 
-    // Windows 11 原生毛玻璃/云母 API (可选: 'acrylic' | 'mica' | 'tabbed' | 'none')
     backgroundMaterial: isMac ? undefined : "mica",
-    visualEffectState: "active",
-    backgroundColor: "#00000000",
+    visualEffectState: "followWindow",
     roundedCorners: true,
     webPreferences: {
       preload: join(__dirname, "../preload/preload.cjs"),
@@ -30,7 +28,7 @@ async function createWindow(): Promise<void> {
   });
 
 
-  window.webContents.openDevTools({ mode: "detach" });
+  // window.webContents.openDevTools({ mode: "detach" });
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());

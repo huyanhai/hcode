@@ -20,6 +20,9 @@ importers:
       '@lucide/vue':
         specifier: 1.43.0
         version: 1.43.0(vue@3.5.42(typescript@6.0.3))
+      dockview-vue:
+        specifier: 8.3.0
+        version: 8.3.0(vue@3.5.42(typescript@6.0.3))
       pinia:
         specifier: 4.0.3
         version: 4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.42(typescript@6.0.3))
@@ -1094,6 +1097,17 @@ packages:
 
   dmg-builder@26.15.3:
     resolution: {integrity: sha512-O3zJUFUYHJKgzPqioHxfxzBzlSC1eXCSr79gMSBKBP5AgjjpmrydMsMLotEg9fAJF36vdUncb+4ndRNxoPdlSQ==}
+
+  dockview-core@8.3.0:
+    resolution: {integrity: sha512-F2xbORtoFHKFUIbZ0Fx8DH4rFxM61uNRqRgApNtSkerQPnWzlhEGNvB85+vT1OmhA/Gg5poiwbjvEOPsqRpRyw==}
+
+  dockview-vue@8.3.0:
+    resolution: {integrity: sha512-CALOpL20he1LImb5nTdxkQrrv7behbX75JVixrQ1AxP36zKzICYxnlqWiltuSBcH+YkfJQb+bVYU4uhIqr9hdA==}
+    peerDependencies:
+      vue: ^3.4.0
+
+  dockview@8.3.0:
+    resolution: {integrity: sha512-CpmRvx0nFxEmZ7H5mHDQM8dAyj6NdmpSeg415bXhfjAs/J9XxhLOyqMo8kneGKic9kYyzMVqoorNtwRKuHa9Mg==}
 
   dotenv-expand@11.0.7:
     resolution: {integrity: sha512-zIHwmZPRshsCdpMDyVsqGmgyP0yT8GAgXUnkdAoJisxvf33k7yO6OuoKmcTGuXPWSsm8Oh88nZicRLA9Y0rUeA==}
@@ -3784,6 +3798,17 @@ snapshots:
     transitivePeerDependencies:
       - electron-builder-squirrel-windows
       - supports-color
+
+  dockview-core@8.3.0: {}
+
+  dockview-vue@8.3.0(vue@3.5.42(typescript@6.0.3)):
+    dependencies:
+      dockview: 8.3.0
+      vue: 3.5.42(typescript@6.0.3)
+
+  dockview@8.3.0:
+    dependencies:
+      dockview-core: 8.3.0
 
   dotenv-expand@11.0.7:
     dependencies:
