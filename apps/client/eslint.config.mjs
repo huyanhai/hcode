@@ -22,6 +22,16 @@ export default [
     files: ['**/*.ts', '**/*.vue'],
     rules: {
       'no-undef': 'off',
+      // Route and shadcn component filenames intentionally use single-word names.
+      'vue/multi-word-component-names': 'off',
+    },
+  },
+  {
+    files: ['tailwind.config.js'],
+    languageOptions: {
+      globals: {
+        module: 'readonly',
+      },
     },
   },
 ]

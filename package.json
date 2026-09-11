@@ -21,8 +21,8 @@
     "pnpm": "10.13.1"
   },
   "devDependencies": {
-    "turbo": "2.10.12",
-    "sass-embedded": "1.104.0"
-  },
-  "dependencies": {}
+    "prettier": "3.9.6",
+    "sass-embedded": "1.104.0",
+    "turbo": "2.10.12"
+  }
 }

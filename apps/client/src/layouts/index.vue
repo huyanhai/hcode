@@ -1,7 +1,11 @@
 <template>
-  <div></div>
+  <div>
+    <Button>click</Button>
+  </div>
 </template>
 <script lang="ts" setup>
+import { Button } from "@/components/ui/button";
+
 //#region Props
 //#endregion
 //#region Emits
