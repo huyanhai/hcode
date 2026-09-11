@@ -1,9 +1,9 @@
 import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
-import { i18n } from './i18n'
-import { router } from './router'
-import { usePreferencesStore } from './stores/preferences'
+import { i18n } from './i18n/index.js'
+import { router } from './router/index.js'
+import { usePreferencesStore } from './stores/preferences.js'
 import './styles/main.css'
 
 const app = createApp(App)
