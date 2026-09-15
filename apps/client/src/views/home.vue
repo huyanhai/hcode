@@ -1,7 +1,8 @@
 <template>
-  <div class="bg-red-100">123</div>
+  <Layout />
 </template>
 <script lang="ts" setup>
+import Layout from "@/components/layout/index.vue";
 //#region Props
 //#endregion
 //#region Emits
