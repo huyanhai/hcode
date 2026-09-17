@@ -18,5 +18,5 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "types/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "types/**/*.ts", "components.d.ts"]
 }

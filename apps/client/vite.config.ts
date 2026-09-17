@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import electron from "vite-plugin-electron/simple";
 import packageJson from "./package.json" with { type: "json" };
 import Components from "unplugin-vue-components/vite";
+import AutoImport from "unplugin-auto-import/vite";
 
 export default defineConfig(({ command, mode }) => ({
   base: "./",
@@ -12,6 +13,16 @@ export default defineConfig(({ command, mode }) => ({
     vue(),
     tailwindcss(),
     Components({ dts: true, resolvers: [] }),
+    AutoImport({
+      imports: [
+        "vue", // 自动导入 Vue 的 API，如 ref、reactive 等
+        "vue-router", // 自动导入 Vue Router 的 API
+        "@vueuse/core", // 自动导入 VueUse 的工具函数
+        "pinia", // 自动导入 Pinia 的状态管理函数
+      ],
+      dts: "src/auto-imports.d.ts", // 生成类型声明文件
+      vueTemplate: true, // 支持在模板中直接使用自动导入的 API
+    }),
     mode !== "web" &&
       electron({
         main: {
