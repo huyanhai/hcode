@@ -3,15 +3,20 @@
     <MessageScroller>
       <MessageScrollerViewport>
         <MessageScrollerContent>
-          <MessageScrollerItem v-for="message in messages" :key="message.id" :message-id="message.id"
-            :scroll-anchor="message.role === 'user'">
+          <MessageScrollerItem
+            v-for="message in messages"
+            :key="message.id"
+            :message-id="message.id"
+            :scroll-anchor="message.role === 'user'"
+          >
             <Message align="end">
-              <MessageAvatar>
-                <Avatar>
-                  <AvatarImage src="/avatars/10.png" alt="@me" />
-                  <AvatarFallback>ME</AvatarFallback>
-                </Avatar>
-              </MessageAvatar>
+              <MessageContent>
+                <Bubble>
+                  <BubbleContent>Deploying to prod real quick.</BubbleContent>
+                </Bubble>
+              </MessageContent>
+            </Message>
+            <Message align="start">
               <MessageContent>
                 <Bubble>
                   <BubbleContent>Deploying to prod real quick.</BubbleContent>
@@ -26,10 +31,12 @@
   </MessageScrollerProvider>
 </template>
 <script lang="ts" setup>
-const messages = ref([{
-  id: "1",
-  role: "user"
-}])
+const messages = ref([
+  {
+    id: "1",
+    role: "user",
+  },
+]);
 //#region Props
 //#endregion
 //#region Emits

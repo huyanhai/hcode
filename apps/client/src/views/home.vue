@@ -1,7 +1,15 @@
 <template>
-  <Top class="absolute h-10 w-full z-10 pr-2" v-model:left="showLeft" v-model:right="showRight"
-    v-model:bottom="showBottom" />
-  <Layout v-model:left="showLeft" v-model:right="showRight" v-model:bottom="showBottom">
+  <Top
+    class="absolute h-10 w-full z-10 pr-2"
+    v-model:left="showLeft"
+    v-model:right="showRight"
+    v-model:bottom="showBottom"
+  />
+  <Layout
+    v-model:left="showLeft"
+    v-model:right="showRight"
+    v-model:bottom="showBottom"
+  >
     <template #left>
       <Left />
     </template>
