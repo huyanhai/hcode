@@ -6,4 +6,8 @@
   .menu-button {
     @apply h-8! w-full justify-start! px-2!;
   }
+
+  .button-full {
+    @apply rounded-full! items-center gap-1;
+  }
 }

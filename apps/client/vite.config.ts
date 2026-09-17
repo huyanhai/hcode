@@ -6,13 +6,14 @@ import electron from "vite-plugin-electron/simple";
 import packageJson from "./package.json" with { type: "json" };
 import Components from "unplugin-vue-components/vite";
 import AutoImport from "unplugin-auto-import/vite";
+import RekaResolver from "reka-ui/resolver";
 
 export default defineConfig(({ command, mode }) => ({
   base: "./",
   plugins: [
     vue(),
     tailwindcss(),
-    Components({ dts: true, resolvers: [] }),
+    Components({ dts: true, resolvers: [RekaResolver()] }),
     AutoImport({
       imports: [
         "vue", // 自动导入 Vue 的 API，如 ref、reactive 等

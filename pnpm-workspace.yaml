@@ -1,12 +1,17 @@
 packages:
-  # 共享工具、业务库及配置包
-  - 'packages/*'
-  # 可独立运行和部署的应用
-  - 'apps/*'
-  # 可复用的组件包
-  - 'components/*'
-  # 排除测试目录
+  - packages/*
+  - apps/*
+  - components/*
   - '!**/test/**'
 
+ignoredBuiltDependencies:
+  - '@seorii/win32-displayconfig'
+  - electron-acrylic-window
+  - electron-winstaller
+
 onlyBuiltDependencies:
+  - '@seorii/win32-displayconfig'
   - electron
+  - electron-acrylic-window
+  - electron-winstaller
+  - vue-demi

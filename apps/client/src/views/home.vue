@@ -14,7 +14,7 @@
       <Left />
     </template>
     <template #middle>
-      <div class="pt-8 px-2">
+      <div class="pt-8 px-4 h-full box-border">
         <Middle />
       </div>
     </template>

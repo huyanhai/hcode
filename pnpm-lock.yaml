@@ -127,76 +127,6 @@ importers:
         specifier: 3.3.11
         version: 3.3.11(typescript@6.0.3)
 
-  apps/code-client:
-    dependencies:
-      '@lucide/vue':
-        specifier: 1.43.0
-        version: 1.43.0(vue@3.5.42(typescript@6.0.3))
-      dockview-vue:
-        specifier: 8.3.0
-        version: 8.3.0(vue@3.5.42(typescript@6.0.3))
-      pinia:
-        specifier: 4.0.3
-        version: 4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.42(typescript@6.0.3))
-      vue:
-        specifier: 3.5.42
-        version: 3.5.42(typescript@6.0.3)
-      vue-i18n:
-        specifier: 11.4.10
-        version: 11.4.10(vue@3.5.42(typescript@6.0.3))
-      vue-router:
-        specifier: 5.3.1
-        version: 5.3.1(@vue/compiler-sfc@3.5.42)(pinia@4.0.3(@vue/devtools-api@8.2.1)(typescript@6.0.3)(vue@3.5.42(typescript@6.0.3)))(rolldown@1.2.7)(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0)(sass-embedded@1.104.0)(sass@1.104.0))(vue@3.5.42(typescript@6.0.3))
-    devDependencies:
-      '@eslint/js':
-        specifier: 10.0.1
-        version: 10.0.1(eslint@10.10.0(jiti@2.7.0))
-      '@tailwindcss/vite':
-        specifier: 4.3.3
-        version: 4.3.3(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0)(sass-embedded@1.104.0)(sass@1.104.0))
-      '@types/node':
-        specifier: 22.20.1
-        version: 22.20.1
-      '@vitejs/plugin-vue':
-        specifier: 6.0.8
-        version: 6.0.8(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0)(sass-embedded@1.104.0)(sass@1.104.0))(vue@3.5.42(typescript@6.0.3))
-      electron:
-        specifier: 44.2.0
-        version: 44.2.0
-      electron-acrylic-window:
-        specifier: 0.5.11
-        version: 0.5.11
-      electron-builder:
-        specifier: 26.15.3
-        version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
-      eslint:
-        specifier: 10.10.0
-        version: 10.10.0(jiti@2.7.0)
-      eslint-plugin-vue:
-        specifier: 10.11.0
-        version: 10.11.0(@typescript-eslint/parser@8.70.0(eslint@10.10.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.10.0(jiti@2.7.0))(vue-eslint-parser@10.4.1(eslint@10.10.0(jiti@2.7.0)))
-      tailwindcss:
-        specifier: 4.3.3
-        version: 4.3.3
-      typescript:
-        specifier: 6.0.3
-        version: 6.0.3
-      typescript-eslint:
-        specifier: 8.70.0
-        version: 8.70.0(eslint@10.10.0(jiti@2.7.0))(typescript@6.0.3)
-      vite:
-        specifier: 8.2.2
-        version: 8.2.2(@types/node@22.20.1)(jiti@2.7.0)(sass-embedded@1.104.0)(sass@1.104.0)
-      vite-plugin-electron:
-        specifier: 1.1.2
-        version: 1.1.2(vite@8.2.2(@types/node@22.20.1)(jiti@2.7.0)(sass-embedded@1.104.0)(sass@1.104.0))
-      vue-eslint-parser:
-        specifier: 10.4.1
-        version: 10.4.1(eslint@10.10.0(jiti@2.7.0))
-      vue-tsc:
-        specifier: 3.3.11
-        version: 3.3.11(typescript@6.0.3)
-
 packages:
 
   '@babel/helper-string-parser@7.29.7':
@@ -430,11 +360,6 @@ packages:
 
   '@keyv/serialize@1.1.1':
     resolution: {integrity: sha512-dXn3FZhPv0US+7dtJsIi2R+c7qWYiReoEh5zUntWCf4oSpMNib8FDhSoed6m3QyZdx5hK7iLFkYk3rNxwt8vTA==}
-
-  '@lucide/vue@1.43.0':
-    resolution: {integrity: sha512-Asq2HozXp4s7JxQVTVVeMo6WINVsJr477uNOafM3Qft1K1aDbbgkVuCP3X37UZXcVB4rEGXaIM//04Ndi2GJfQ==}
-    peerDependencies:
-      vue: '>=3.0.1'
 
   '@lucide/vue@1.46.0':
     resolution: {integrity: sha512-xp4mUamXKM/jYCve8TOcEcuikidFh3Jn9gs0THCeEKn/fAdeU0mKhPqk0fmIwn42fI4CwGLRWrLneLA69h8Nqw==}
@@ -1329,17 +1254,6 @@ packages:
 
   dmg-builder@26.15.3:
     resolution: {integrity: sha512-O3zJUFUYHJKgzPqioHxfxzBzlSC1eXCSr79gMSBKBP5AgjjpmrydMsMLotEg9fAJF36vdUncb+4ndRNxoPdlSQ==}
-
-  dockview-core@8.3.0:
-    resolution: {integrity: sha512-F2xbORtoFHKFUIbZ0Fx8DH4rFxM61uNRqRgApNtSkerQPnWzlhEGNvB85+vT1OmhA/Gg5poiwbjvEOPsqRpRyw==}
-
-  dockview-vue@8.3.0:
-    resolution: {integrity: sha512-CALOpL20he1LImb5nTdxkQrrv7behbX75JVixrQ1AxP36zKzICYxnlqWiltuSBcH+YkfJQb+bVYU4uhIqr9hdA==}
-    peerDependencies:
-      vue: ^3.4.0
-
-  dockview@8.3.0:
-    resolution: {integrity: sha512-CpmRvx0nFxEmZ7H5mHDQM8dAyj6NdmpSeg415bXhfjAs/J9XxhLOyqMo8kneGKic9kYyzMVqoorNtwRKuHa9Mg==}
 
   dotenv-expand@11.0.7:
     resolution: {integrity: sha512-zIHwmZPRshsCdpMDyVsqGmgyP0yT8GAgXUnkdAoJisxvf33k7yO6OuoKmcTGuXPWSsm8Oh88nZicRLA9Y0rUeA==}
@@ -3375,10 +3289,6 @@ snapshots:
 
   '@keyv/serialize@1.1.1': {}
 
-  '@lucide/vue@1.43.0(vue@3.5.42(typescript@6.0.3))':
-    dependencies:
-      vue: 3.5.42(typescript@6.0.3)
-
   '@lucide/vue@1.46.0(vue@3.5.42(typescript@6.0.3))':
     dependencies:
       vue: 3.5.42(typescript@6.0.3)
@@ -4301,17 +4211,6 @@ snapshots:
     transitivePeerDependencies:
       - electron-builder-squirrel-windows
       - supports-color
-
-  dockview-core@8.3.0: {}
-
-  dockview-vue@8.3.0(vue@3.5.42(typescript@6.0.3)):
-    dependencies:
-      dockview: 8.3.0
-      vue: 3.5.42(typescript@6.0.3)
-
-  dockview@8.3.0:
-    dependencies:
-      dockview-core: 8.3.0
 
   dotenv-expand@11.0.7:
     dependencies:
