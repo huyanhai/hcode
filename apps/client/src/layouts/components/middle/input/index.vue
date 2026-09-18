@@ -80,7 +80,7 @@
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
             <Button size="sm" variant="ghost" class="ml-auto button-full px-2">
-              <span>{{ selectedModel }}</span>
+              <span>{{ modelOptions.find((item) => item.id === selectedModel)?.name ?? "未配置模型" }}</span>
               <span class="text-muted-foreground">高</span>
               <ChevronDown class="size-4 text-muted-foreground" />
             </Button>
@@ -88,10 +88,10 @@
           <DropdownMenuContent align="end" side="top" class="w-44">
             <DropdownMenuItem
               v-for="modelOption in modelOptions"
-              :key="modelOption"
-              @click="selectedModel = modelOption"
+              :key="modelOption.id"
+              @click="selectedModel = modelOption.id"
             >
-              {{ modelOption }}
+              {{ modelOption.name }} · {{ modelOption.model }}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -109,7 +109,7 @@
           variant="default"
           size="icon-sm"
           class="ml-1 button-full"
-          :disabled="!canSubmit"
+          :disabled="!canSubmit || disabled"
         >
           <ArrowUp />
         </InputGroupButton>
@@ -133,6 +133,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import Attachment, { type AttachmentItem } from "./AttachmentItem.vue";
 import Comment, { type InputComment } from "./Comment.vue";
 import InputArea from "./InputArea.vue";
+import type { ModelProfileSummary } from "@hcode/agent-protocol";
 
 export interface SubmitPayload {
   content: string;
@@ -142,13 +143,18 @@ export interface SubmitPayload {
   fullAccess: boolean;
 }
 
+const props = defineProps<{ profiles?: ModelProfileSummary[]; disabled?: boolean }>();
+
 const modelData = defineModel<SubmitPayload>({ required: true });
 
 const fileInputRef = ref<HTMLInputElement>();
 const inputAreaRef = ref<InstanceType<typeof InputArea>>();
 const menuOpen = ref(false);
-const selectedModel = ref("5.6 Luna");
-const modelOptions = ["5.6 Luna", "5.6 Terra", "5.5"];
+const selectedModel = computed({
+  get: () => modelData.value.model,
+  set: (value: string) => { modelData.value.model = value; },
+});
+const modelOptions = computed(() => props.profiles ?? []);
 const objectUrls = new Set<string>();
 
 //#region Props

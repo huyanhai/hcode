@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
+    "@hcode/agent-protocol": "workspace:*",
     "@lucide/vue": "1.46.0",
     "@respeak/lucide-motion-vue": "0.7.0",
     "@vueuse/core": "14.4.0",
@@ -46,6 +47,7 @@
     "electron-builder": "26.15.3",
     "eslint-plugin-vue": "10.11.0",
     "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
     "unplugin-auto-import": "21.1.0",
     "unplugin-vue-components": "32.1.0",
     "vite-plugin-electron": "1.1.2",

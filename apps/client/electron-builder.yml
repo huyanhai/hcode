@@ -6,6 +6,9 @@ directories:
 files:
   - dist/**/*
   - package.json
+extraResources:
+  - from: ../agent-runtime/dist/index.cjs
+    to: agent-runtime/dist/index.cjs
 artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
 mac:
   category: public.app-category.developer-tools

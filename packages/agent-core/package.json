@@ -1,0 +1,21 @@
+{
+  "name": "@hcode/agent-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.0",
+    "@hcode/agent-protocol": "workspace:*",
+    "@hcode/agent-tools-local": "workspace:*",
+    "ai": "^6.0.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": { "typescript": "^7.0.2", "@types/node": "^26.6.1" }
+}

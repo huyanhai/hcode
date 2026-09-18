@@ -1,5 +1,8 @@
 import { app, Menu, session, BrowserWindow } from "electron";
 import { join } from "node:path";
+import { RuntimeBridge } from "./runtime-bridge";
+
+const runtimeBridge = new RuntimeBridge();
 
 async function createWindow(): Promise<void> {
   const isMac = process.platform === "darwin";
@@ -46,9 +49,11 @@ function handleStartupError(error: unknown): void {
   app.quit();
 }
 
-app
+  app
   .whenReady()
   .then(async () => {
+    runtimeBridge.registerIpc();
+    runtimeBridge.start();
     session.defaultSession.setPermissionRequestHandler(
       (_contents, _permission, callback) => {
         callback(false);
@@ -79,5 +84,6 @@ app
   .catch(handleStartupError);
 
 app.on("window-all-closed", () => {
+  runtimeBridge.stop();
   if (process.platform !== "darwin") app.quit();
 });
