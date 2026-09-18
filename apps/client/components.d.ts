@@ -11,6 +11,15 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    Attachment: typeof import('./src/components/ui/attachment/Attachment.vue')['default']
+    AttachmentAction: typeof import('./src/components/ui/attachment/AttachmentAction.vue')['default']
+    AttachmentActions: typeof import('./src/components/ui/attachment/AttachmentActions.vue')['default']
+    AttachmentContent: typeof import('./src/components/ui/attachment/AttachmentContent.vue')['default']
+    AttachmentDescription: typeof import('./src/components/ui/attachment/AttachmentDescription.vue')['default']
+    AttachmentGroup: typeof import('./src/components/ui/attachment/AttachmentGroup.vue')['default']
+    AttachmentMedia: typeof import('./src/components/ui/attachment/AttachmentMedia.vue')['default']
+    AttachmentTitle: typeof import('./src/components/ui/attachment/AttachmentTitle.vue')['default']
+    AttachmentTrigger: typeof import('./src/components/ui/attachment/AttachmentTrigger.vue')['default']
     Avatar: typeof import('./src/components/ui/avatar/Avatar.vue')['default']
     AvatarFallback: typeof import('./src/components/ui/avatar/AvatarFallback.vue')['default']
     AvatarImage: typeof import('./src/components/ui/avatar/AvatarImage.vue')['default']
@@ -39,6 +48,7 @@ declare module 'vue' {
     HoverCardPortal: typeof import('reka-ui')['HoverCardPortal']
     HoverCardRoot: typeof import('reka-ui')['HoverCardRoot']
     HoverCardTrigger: typeof import('reka-ui')['HoverCardTrigger']
+    Indev: typeof import('./src/components/closeable-button/indev.vue')['default']
     Input: typeof import('./src/components/ui/input/Input.vue')['default']
     InputGroup: typeof import('./src/components/ui/input-group/InputGroup.vue')['default']
     InputGroupAddon: typeof import('./src/components/ui/input-group/InputGroupAddon.vue')['default']
@@ -58,6 +68,7 @@ declare module 'vue' {
     MessageScrollerItem: typeof import('./src/components/ui/message-scroller/MessageScrollerItem.vue')['default']
     MessageScrollerProvider: typeof import('./src/components/ui/message-scroller/MessageScrollerProvider.vue')['default']
     MessageScrollerViewport: typeof import('./src/components/ui/message-scroller/MessageScrollerViewport.vue')['default']
+    Primitive: typeof import('reka-ui')['Primitive']
     ResizableHandle: typeof import('./src/components/ui/resizable/ResizableHandle.vue')['default']
     ResizablePanelGroup: typeof import('./src/components/ui/resizable/ResizablePanelGroup.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

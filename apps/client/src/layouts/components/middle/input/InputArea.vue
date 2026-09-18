@@ -1,8 +1,8 @@
 <template>
-  <div class="relative w-full px-4 pb-2 pt-3">
+  <div class="relative w-full">
     <span
       v-if="!model"
-      class="pointer-events-none absolute left-4 top-3 text-sm leading-6 text-muted-foreground/70"
+      class="pointer-events-none absolute left-0 top-0 text-sm leading-6 text-muted-foreground/70"
     >
       {{ placeholder }}
     </span>
@@ -14,7 +14,7 @@
       aria-label="Message"
       :aria-disabled="disabled"
       :class="[
-        'min-h-14 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 outline-none',
+        'min-h-20 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 outline-none',
         disabled && 'cursor-not-allowed opacity-60',
       ]"
       @input="handleInput"

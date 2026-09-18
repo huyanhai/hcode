@@ -1,16 +1,25 @@
 <template>
   <form class="w-full" @submit.prevent="handleSubmit">
-    <InputGroup
-      class="items-stretch overflow-hidden rounded-2xl"
-    >
-      <div class="w-full">
-        <Attachment :attachments="attachments" @remove="removeAttachment" />
-        <Comment
-          :comments="comments"
-          @clear="clearComments"
-          @edit="emit('edit-comment', $event)"
-          @remove="removeComment"
-        />
+    <InputGroup class="items-stretch overflow-hidden rounded-2xl p-3 gap-2">
+      <div class="w-full flex flex-col gap-2">
+        <div
+          class="flex gap-2 items-end"
+          v-if="attachments.length || comments.length"
+        >
+          <Attachment
+            v-for="item in attachments"
+            :key="item.id"
+            :attachment="item"
+            @remove="removeAttachment"
+          />
+          <Comment
+            v-if="comments.length"
+            :comments="comments"
+            @clear="clearComments"
+            @edit="emit('edit-comment', $event)"
+            @remove="removeComment"
+          />
+        </div>
         <InputArea
           ref="inputAreaRef"
           v-model="draft"
@@ -20,7 +29,7 @@
         />
       </div>
 
-      <InputGroupAddon align="block-end" class="px-3 pt-1">
+      <InputGroupAddon align="block-end" class="p-0!">
         <input
           ref="fileInputRef"
           type="file"
@@ -75,11 +84,7 @@
 
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
-            <Button
-              size="sm"
-              variant="ghost"
-              class="ml-auto button-full px-2"
-            >
+            <Button size="sm" variant="ghost" class="ml-auto button-full px-2">
               <span>{{ selectedModel }}</span>
               <span class="text-muted-foreground">高</span>
               <ChevronDown class="size-4 text-muted-foreground" />
@@ -110,7 +115,7 @@
           type="submit"
           variant="default"
           size="icon-sm"
-          class="ml-1 button-full bg-blue-600 text-white hover:bg-blue-700"
+          class="ml-1 button-full"
           :disabled="!canSubmit || disabled || isBusy"
         >
           <ArrowUp />
@@ -133,7 +138,7 @@ import {
   Telescope,
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import Attachment, { type AttachmentItem } from "./Attachment.vue";
+import Attachment, { type AttachmentItem } from "./AttachmentItem.vue";
 import Comment, { type InputComment } from "./Comment.vue";
 import InputArea from "./InputArea.vue";
 

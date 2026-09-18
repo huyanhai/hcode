@@ -22,11 +22,12 @@
         </MessageScroller>
       </MessageScrollerProvider>
     </div>
-    <Input />
+    <Input :comments="comments" />
   </div>
 </template>
 <script lang="ts" setup>
 import Message from "./Message.vue";
+import type { InputComment } from "./input/Comment.vue";
 import Input from "./input/index.vue";
 
 const messages = ref([
@@ -35,6 +36,8 @@ const messages = ref([
     role: "user",
   },
 ]);
+
+const comments = ref<InputComment[]>([]);
 //#region Props
 //#endregion
 //#region Emits

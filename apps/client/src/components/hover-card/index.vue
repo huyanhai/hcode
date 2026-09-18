@@ -7,7 +7,8 @@
       <HoverCardContent
         :side="side"
         :sideOffset="offset"
-        class="rounded-xl border p-1"
+        :align="align"
+        class="rounded-xl border p-1 bg-background"
       >
         <slot name="content" />
       </HoverCardContent>
@@ -15,9 +16,10 @@
   </HoverCardRoot>
 </template>
 <script lang="ts" setup>
-const { offset, side } = defineProps<{
+const { offset, side, align } = defineProps<{
   offset?: number;
   side?: "top" | "right" | "bottom" | "left";
+  align?: "start" | "center" | "end";
 }>();
 //#region Props
 //#endregion
