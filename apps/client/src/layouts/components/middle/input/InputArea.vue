@@ -1,18 +1,14 @@
 <template>
   <div class="relative w-full">
     <span
-      v-if="!model"
+      v-if="!prompt.trim()"
       class="pointer-events-none absolute left-0 top-0 text-sm leading-6 text-muted-foreground/70"
     >
-      {{ placeholder }}
+      {{ placeholder || "随心输入" }}
     </span>
     <div
       ref="editorRef"
       :contenteditable="!disabled"
-      role="textbox"
-      aria-multiline="true"
-      aria-label="Message"
-      :aria-disabled="disabled"
       :class="[
         'min-h-20 max-h-40 w-full overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 outline-none',
         disabled && 'cursor-not-allowed opacity-60',
@@ -23,64 +19,46 @@
     />
   </div>
 </template>
-
 <script lang="ts" setup>
-import { nextTick, onMounted, ref, watch } from "vue";
-
-const props = withDefaults(
-  defineProps<{
-    modelValue?: string;
-    placeholder?: string;
-    disabled?: boolean;
-  }>(),
-  {
-    modelValue: "",
-    placeholder: "随心输入",
-    disabled: false,
-  },
-);
-
-const emit = defineEmits<{
-  "update:modelValue": [value: string];
-  submit: [];
-}>();
-
 const editorRef = ref<HTMLDivElement>();
-const model = ref(props.modelValue);
 
-watch(
-  () => props.modelValue,
-  (value) => {
-    if (value !== model.value) {
-      model.value = value;
-      syncEditor();
-    }
-  },
-);
-
-watch(model, (value) => {
-  emit("update:modelValue", value);
-  void nextTick(resize);
-});
-
+const prompt = defineModel({ required: true, type: String });
+//#region Props
+const { disabled, placeholder } = defineProps<{
+  placeholder?: string;
+  disabled?: boolean;
+}>();
+//#endregion
+//#region Emits
+const emit = defineEmits(["submit"]);
+//#endregion
+//#region Hooks
+//#endregion
+//#region Computed
+//#endregion
+//#region Watch
+//#endregion
+//#region Event
+//#endregion
+//#region Function
+// 同步数据
 function syncEditor() {
   const editor = editorRef.value;
-  if (!editor || editor.innerText === model.value) return;
-
-  editor.textContent = model.value;
+  if (!editor || editor.innerText === prompt.value) return;
+  editor.textContent = prompt.value;
 }
 
 function handleInput() {
-  if (disabled.value) return;
+  if (disabled) return;
 
-  model.value = (editorRef.value?.innerText ?? "")
+  prompt.value = (editorRef.value?.innerText ?? "")
     .replace(/\u00a0/g, " ")
     .replace(/\r\n/g, "\n");
   resize();
 }
 
 function handlePaste(event: ClipboardEvent) {
-  if (disabled.value) return;
+  if (disabled) return;
 
   event.preventDefault();
   const text = event.clipboardData?.getData("text/plain") ?? "";
@@ -97,9 +75,8 @@ function resize() {
 
 function handleKeydown(event: KeyboardEvent) {
   if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-
   event.preventDefault();
-  if (!props.disabled && model.value.trim()) emit("submit");
+  if (!disabled && prompt.value.trim()) emit("submit");
 }
 
 function focus() {
@@ -107,24 +84,18 @@ function focus() {
 }
 
 function clear() {
-  model.value = "";
+  prompt.value = "";
   if (editorRef.value) editorRef.value.textContent = "";
-  void nextTick(resize);
+  nextTick(resize);
 }
-
-const disabled = ref(props.disabled);
-
-watch(
-  () => props.disabled,
-  (value) => {
-    disabled.value = value;
-  },
-);
-
+//#endregion
+//#region Life Cycle
 onMounted(() => {
   syncEditor();
-  void nextTick(resize);
+  nextTick(resize);
 });
-
+//#endregion
+//#region Expose
 defineExpose({ clear, focus });
+//#endregion
 </script>

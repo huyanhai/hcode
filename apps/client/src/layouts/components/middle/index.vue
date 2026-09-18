@@ -14,7 +14,9 @@
                 :message-id="message.id"
                 :scroll-anchor="message.role === 'user'"
               >
-                <Message align="start"> Deploying to prod real quick. </Message>
+                <Message :align="message.role === 'user' ? 'end' : 'start'">
+                  {{ message.content }}
+                </Message>
               </MessageScrollerItem>
             </MessageScrollerContent>
           </MessageScrollerViewport>
@@ -22,22 +24,22 @@
         </MessageScroller>
       </MessageScrollerProvider>
     </div>
-    <Input :comments="comments" />
+    <Input v-model="data" @submit="submit" />
   </div>
 </template>
 <script lang="ts" setup>
 import Message from "./Message.vue";
-import type { InputComment } from "./input/Comment.vue";
-import Input from "./input/index.vue";
+import Input, { type SubmitPayload } from "./input/index.vue";
 
-const messages = ref([
-  {
-    id: "1",
-    role: "user",
-  },
-]);
+const data = reactive<SubmitPayload>({
+  comments: [],
+  model: "",
+  attachments: [],
+  content: "",
+  fullAccess: true,
+});
 
-const comments = ref<InputComment[]>([]);
+const messages = ref<{ id: string; role: "user" | "a"; content: string }[]>([]);
 //#region Props
 //#endregion
 //#region Emits
@@ -51,6 +53,13 @@ const comments = ref<InputComment[]>([]);
 //#region Event
 //#endregion
 //#region Function
+function submit() {
+  messages.value.push({
+    id: `${+new Date()}`,
+    role: "user",
+    content: data.content,
+  });
+}
 //#endregion
 //#region Life Cycle
 //#endregion
