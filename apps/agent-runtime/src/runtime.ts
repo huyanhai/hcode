@@ -2,10 +2,11 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createEvent, type AgentEvent, type Command, type RuntimeResponse, type StartTurnPayload } from "@hcode/agent-protocol";
+import { createEvent, type AgentEvent, type Command, type ListModelsPayload, type RuntimeResponse, type StartTurnPayload, type UpsertProfilePayload } from "@hcode/agent-protocol";
 import { ApprovalRepository, closeDatabase, openDatabase, EventRepository, MessageRepository, ProfileRepository, RuntimeRequestRepository, SessionRepository, ToolCallRepository, TurnRepository, WorkspaceRepository } from "@hcode/agent-storage";
 import { assertWorkspace } from "@hcode/agent-tools-local";
 import { streamAgent, type CoreStreamEvent } from "@hcode/agent-core";
+import { listProviderModels, ModelCatalogError, normalizeBaseUrl, sameBaseUrl } from "./model-catalog.js";
 
 type RuntimeOptions = { databasePath?: string };
 type TurnContext = {
@@ -70,6 +71,7 @@ export class AgentRuntime {
       case "profile/list": return this.ok(command, this.profiles.list());
       case "profile/upsert": return this.upsertProfile(command);
       case "profile/delete": return this.deleteProfile(command);
+      case "model/list": return this.listModels(command);
       case "workspace/list": return this.ok(command, this.workspaces.list());
       case "workspace/upsert": return this.upsertWorkspace(command);
       case "session/list": return this.ok(command, this.sessions.list(this.payload<{ workspaceId?: string }>(command).workspaceId));
@@ -190,14 +192,46 @@ export class AgentRuntime {
   }
 
   private upsertProfile(command: Command): RuntimeResponse {
-    const input = this.payload<{ id?: string; name: string; provider: string; model: string; baseUrl: string; apiKey?: string; isDefault?: boolean }>(command);
+    const input = this.payload<UpsertProfilePayload>(command);
     const id = input.id ?? randomUUID();
     const existing = this.profiles.get(id);
-    const apiKey = input.apiKey?.trim() || existing?.apiKey;
+    let baseUrl: string;
+    try {
+      baseUrl = normalizeBaseUrl(input.baseUrl);
+    } catch (error) {
+      return this.error(command, error instanceof ModelCatalogError ? error.code : "INVALID_BASE_URL", "Base URL 无效");
+    }
+    const apiKey = input.apiKey?.trim() || (existing && sameBaseUrl(baseUrl, existing.baseUrl) ? existing.apiKey : undefined);
     if (!apiKey) return this.error(command, "API_KEY_REQUIRED", "API Key is required");
-    const profile = this.profiles.upsert({ id, name: input.name, provider: input.provider, model: input.model, baseUrl: input.baseUrl, apiKey, isDefault: input.isDefault ?? false });
+    const profile = this.profiles.upsert({ id, name: input.name, provider: input.provider, model: input.model, baseUrl, apiKey, isDefault: input.isDefault ?? false });
     this.publish(createEvent("profile/changed", profile));
     return this.ok(command, profile);
+  }
+
+  private async listModels(command: Command): Promise<RuntimeResponse> {
+    const input = this.payload<ListModelsPayload>(command);
+    let baseUrl: string;
+    try {
+      baseUrl = normalizeBaseUrl(input.baseUrl);
+    } catch (error) {
+      return this.error(command, error instanceof ModelCatalogError ? error.code : "MODEL_LIST_INVALID_BASE_URL", "Base URL 无效");
+    }
+
+    let apiKey = input.apiKey?.trim();
+    if (!apiKey) {
+      if (!input.profileId) return this.error(command, "API_KEY_REQUIRED", "API Key is required");
+      const profile = this.profiles.get(input.profileId);
+      if (!profile) return this.error(command, "PROFILE_NOT_FOUND", "Model profile not found");
+      if (!sameBaseUrl(baseUrl, profile.baseUrl)) return this.error(command, "API_KEY_REQUIRED", "更换 Base URL 后需要重新填写 API Key");
+      apiKey = profile.apiKey;
+    }
+
+    try {
+      return this.ok(command, { models: await listProviderModels(baseUrl, apiKey) });
+    } catch (error) {
+      if (error instanceof ModelCatalogError) return this.error(command, error.code, error.message);
+      return this.error(command, "MODEL_LIST_NETWORK_ERROR", "无法获取模型列表");
+    }
   }
 
   private deleteProfile(command: Command): RuntimeResponse { this.profiles.delete(this.payload<{ id: string }>(command).id); return this.ok(command, null); }

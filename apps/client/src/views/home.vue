@@ -27,6 +27,7 @@
   </Layout>
 </template>
 <script lang="ts" setup>
+defineOptions({ name: "HomeView" });
 import Layout from "@/layouts/index.vue";
 import Top from "@/layouts/components/top/index.vue";
 import Left from "@/layouts/components/left/index.vue";

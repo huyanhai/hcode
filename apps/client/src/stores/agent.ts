@@ -1,8 +1,10 @@
 import { defineStore } from "pinia";
-import type { AgentEvent, Message, ModelProfileSummary, Session, Workspace } from "@hcode/agent-protocol";
+import type { AgentEvent, ListModelsPayload, Message, ModelProfileSummary, Session, UpsertProfilePayload, Workspace } from "@hcode/agent-protocol";
 import {
   createSession,
+  deleteProfile,
   interruptTurn,
+  listModels,
   listProfiles,
   listSessions,
   listWorkspaces,
@@ -10,6 +12,7 @@ import {
   respondToApproval,
   startTurn,
   subscribeToAgentEvents,
+  upsertProfile,
   upsertWorkspace,
 } from "@/lib/agent-client";
 
@@ -17,6 +20,9 @@ export type ApprovalView = { approvalId: string; toolName: string; input: unknow
 
 export const useAgentStore = defineStore("agent", () => {
   const profiles = ref<ModelProfileSummary[]>([]);
+  const availableModels = ref<Record<string, string[]>>({});
+  const modelsLoading = ref(false);
+  const modelsError = ref("");
   const workspaces = ref<Workspace[]>([]);
   const sessions = ref<Session[]>([]);
   const messages = ref<Message[]>([]);
@@ -44,6 +50,33 @@ export const useAgentStore = defineStore("agent", () => {
   }
 
   async function refreshProfiles(): Promise<void> { profiles.value = await listProfiles(); }
+  async function saveProfile(payload: UpsertProfilePayload): Promise<ModelProfileSummary> {
+    const profile = await upsertProfile(payload);
+    await refreshProfiles();
+    return profile;
+  }
+  async function removeProfile(id: string): Promise<void> {
+    await deleteProfile(id);
+    const next = { ...availableModels.value };
+    delete next[id];
+    availableModels.value = next;
+    await refreshProfiles();
+  }
+  async function loadModels(payload: ListModelsPayload): Promise<string[]> {
+    modelsLoading.value = true;
+    modelsError.value = "";
+    try {
+      const result = await listModels(payload);
+      const key = payload.profileId ?? "draft";
+      availableModels.value = { ...availableModels.value, [key]: result.models };
+      return result.models;
+    } catch (error) {
+      modelsError.value = error instanceof Error ? error.message : String(error);
+      throw error;
+    } finally {
+      modelsLoading.value = false;
+    }
+  }
   async function refreshWorkspaces(): Promise<void> { workspaces.value = await listWorkspaces(); }
   async function refreshSessions(): Promise<void> {
     sessions.value = currentWorkspaceId.value ? await listSessions(currentWorkspaceId.value) : [];
@@ -131,8 +164,8 @@ export const useAgentStore = defineStore("agent", () => {
   function dispose(): void { unsubscribe?.(); initialized = false; }
 
   return {
-    profiles, workspaces, sessions, messages, approvals, currentWorkspaceId, currentSessionId,
+    profiles, availableModels, modelsLoading, modelsError, workspaces, sessions, messages, approvals, currentWorkspaceId, currentSessionId,
     activeTurnId, busy, errorMessage, initialize, refreshProfiles, chooseWorkspace, newSession,
-    selectSession, send, answerApproval, stop, dispose,
+    selectSession, send, answerApproval, stop, saveProfile, removeProfile, loadModels, dispose,
   };
 });

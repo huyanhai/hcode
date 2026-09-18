@@ -1,15 +1,26 @@
-import type { AgentEvent, Command, Message, ModelProfileSummary, Session, Workspace } from "@hcode/agent-protocol";
+import type { AgentEvent, Command, ListModelsPayload, ListModelsResult, Message, ModelProfileSummary, Session, UpsertProfilePayload, Workspace } from "@hcode/agent-protocol";
 
 function requestId(): string { return crypto.randomUUID(); }
 
 async function request<T>(type: Command["type"], payload: unknown = {}): Promise<T> {
   if (!window.agent) throw new Error("Agent runtime is unavailable in browser preview");
-  const response = await window.agent.request({ requestId: requestId(), type, payload });
-  if (!response.ok) throw new Error(response.error?.message ?? "Agent request failed");
+  const command = { requestId: requestId(), type, payload } as Command;
+  const response = await window.agent.request(command);
+  if (!response.ok) throw new AgentRequestError(response.error?.code ?? "RUNTIME_ERROR", response.error?.message ?? "Agent request failed");
   return response.data as T;
 }
 
+export class AgentRequestError extends Error {
+  constructor(readonly code: string, message: string) {
+    super(message);
+    this.name = "AgentRequestError";
+  }
+}
+
 export function listProfiles(): Promise<ModelProfileSummary[]> { return request<ModelProfileSummary[]>("profile/list"); }
+export function upsertProfile(payload: UpsertProfilePayload): Promise<ModelProfileSummary> { return request<ModelProfileSummary>("profile/upsert", payload); }
+export function deleteProfile(id: string): Promise<null> { return request<null>("profile/delete", { id }); }
+export function listModels(payload: ListModelsPayload): Promise<ListModelsResult> { return request<ListModelsResult>("model/list", payload); }
 export function listWorkspaces(): Promise<Workspace[]> { return request<Workspace[]>("workspace/list"); }
 export function upsertWorkspace(path: string): Promise<Workspace> { return request<Workspace>("workspace/upsert", { path }); }
 export function listSessions(workspaceId: string): Promise<Session[]> { return request<Session[]>("session/list", { workspaceId }); }

@@ -142,3 +142,129 @@ test("runtime streams an OpenAI-compatible response through Vercel AI SDK", asyn
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("runtime lists OpenAI-compatible models without exposing saved credentials", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "hcode-models-"));
+  const requests = [];
+  const secret = "saved-local-key";
+  const providerBody = `provider leaked ${secret} Authorization: Bearer ${secret}`;
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += chunk.toString();
+    requests.push({
+      method: request.method,
+      url: request.url,
+      authorization: request.headers.authorization,
+      accept: request.headers.accept,
+      body,
+    });
+
+    if (request.url === "/v1/models") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ data: [{ id: "model-b" }, { id: "model-a" }, { id: "model-b" }, { id: "" }, {}] }));
+      return;
+    }
+    if (request.url === "/unauthorized/models") {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(providerBody);
+      return;
+    }
+    if (request.url === "/invalid/models") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end("not-json");
+      return;
+    }
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ data: [] }));
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const runtime = startRuntime(directory);
+
+  try {
+    const profile = await runtime.request("profile/upsert", {
+      name: "Catalog",
+      provider: "openai",
+      model: "model-a",
+      baseUrl: `${origin}/v1/`,
+      apiKey: secret,
+      isDefault: true,
+    });
+    assert.equal(profile.ok, true);
+
+    const listed = await runtime.request("model/list", {
+      profileId: profile.data.id,
+      baseUrl: `${origin}/v1`,
+    });
+    assert.deepEqual(listed, {
+      requestId: listed.requestId,
+      ok: true,
+      data: { models: ["model-a", "model-b"] },
+    });
+    assert.deepEqual(requests[0], {
+      method: "GET",
+      url: "/v1/models",
+      authorization: `Bearer ${secret}`,
+      accept: "application/json",
+      body: "",
+    });
+
+    const countBeforeChangedUrl = requests.length;
+    const changedUrl = await runtime.request("model/list", {
+      profileId: profile.data.id,
+      baseUrl: `${origin}/different`,
+    });
+    assert.equal(changedUrl.ok, false);
+    assert.equal(changedUrl.error.code, "API_KEY_REQUIRED");
+    assert.equal(requests.length, countBeforeChangedUrl);
+
+    const changedProfile = await runtime.request("profile/upsert", {
+      id: profile.data.id,
+      name: "Catalog",
+      provider: "openai",
+      model: "model-a",
+      baseUrl: `${origin}/different`,
+      isDefault: true,
+    });
+    assert.equal(changedProfile.ok, false);
+    assert.equal(changedProfile.error.code, "API_KEY_REQUIRED");
+
+    const unauthorized = await runtime.request("model/list", {
+      baseUrl: `${origin}/unauthorized`,
+      apiKey: secret,
+    });
+    assert.equal(unauthorized.ok, false);
+    assert.equal(unauthorized.error.code, "MODEL_LIST_HTTP_ERROR");
+    assert.equal(JSON.stringify(unauthorized).includes(secret), false);
+    assert.equal(JSON.stringify(unauthorized).includes(providerBody), false);
+
+    const invalid = await runtime.request("model/list", {
+      baseUrl: `${origin}/invalid`,
+      apiKey: secret,
+    });
+    assert.equal(invalid.ok, false);
+    assert.equal(invalid.error.code, "MODEL_LIST_INVALID_RESPONSE");
+
+    const empty = await runtime.request("model/list", {
+      baseUrl: `${origin}/empty`,
+      apiKey: secret,
+    });
+    assert.equal(empty.ok, false);
+    assert.equal(empty.error.code, "MODEL_LIST_EMPTY");
+
+    const invalidUrl = await runtime.request("model/list", {
+      baseUrl: "not-a-url",
+      apiKey: secret,
+    });
+    assert.equal(invalidUrl.ok, false);
+    assert.equal(invalidUrl.error.code, "INVALID_COMMAND");
+  } finally {
+    await runtime.close();
+    server.close();
+    await once(server, "close");
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

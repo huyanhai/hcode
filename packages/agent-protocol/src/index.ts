@@ -4,6 +4,7 @@ export const commandTypeSchema = z.enum([
   "profile/list",
   "profile/upsert",
   "profile/delete",
+  "model/list",
   "workspace/list",
   "workspace/upsert",
   "session/list",
@@ -39,6 +40,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z.object({ ...commandBase, type: z.literal("profile/list"), payload: z.object({}).optional() }),
   z.object({ ...commandBase, type: z.literal("profile/upsert"), payload: z.object({ id: z.string().optional(), name: z.string().min(1), provider: z.string().min(1), model: z.string().min(1), baseUrl: z.url(), apiKey: z.string().min(1).optional(), isDefault: z.boolean().optional() }) }),
   z.object({ ...commandBase, type: z.literal("profile/delete"), payload: z.object({ id: z.string().min(1) }) }),
+  z.object({ ...commandBase, type: z.literal("model/list"), payload: z.object({ profileId: z.string().min(1).optional(), baseUrl: z.url(), apiKey: z.string().min(1).optional() }) }),
   z.object({ ...commandBase, type: z.literal("workspace/list"), payload: z.object({}).optional() }),
   z.object({ ...commandBase, type: z.literal("workspace/upsert"), payload: z.object({ id: z.string().optional(), path: z.string().min(1), name: z.string().min(1).optional() }) }),
   z.object({ ...commandBase, type: z.literal("session/list"), payload: z.object({ workspaceId: z.string().optional() }).optional() }),
@@ -104,7 +106,7 @@ export const messageSchema = z.object({
 
 export type CommandType = z.infer<typeof commandTypeSchema>;
 export type AgentEventType = z.infer<typeof agentEventTypeSchema>;
-export type Command = { requestId: string; type: CommandType; payload?: unknown };
+export type Command = z.infer<typeof commandSchema>;
 export type AgentEvent = z.infer<typeof agentEventSchema>;
 export type ModelProfile = z.infer<typeof modelProfileSchema>;
 export type ModelProfileSummary = z.infer<typeof modelProfileSummarySchema>;
@@ -114,6 +116,9 @@ export type Message = z.infer<typeof messageSchema>;
 
 export type StartTurnPayload = Extract<z.infer<typeof commandSchema>, { type: "turn/start" }>["payload"];
 export type ApprovalResponsePayload = Extract<z.infer<typeof commandSchema>, { type: "approval/respond" }>["payload"];
+export type UpsertProfilePayload = Extract<z.infer<typeof commandSchema>, { type: "profile/upsert" }>["payload"];
+export type ListModelsPayload = Extract<z.infer<typeof commandSchema>, { type: "model/list" }>["payload"];
+export type ListModelsResult = { models: string[] };
 
 export type RuntimeResponse = {
   requestId: string;
