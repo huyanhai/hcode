@@ -72,6 +72,7 @@ export class AgentRuntime {
       case "profile/upsert": return this.upsertProfile(command);
       case "profile/delete": return this.deleteProfile(command);
       case "model/list": return this.listModels(command);
+      case "models": return this.listModels(command);
       case "workspace/list": return this.ok(command, this.workspaces.list());
       case "workspace/upsert": return this.upsertWorkspace(command);
       case "session/list": return this.ok(command, this.sessions.list(this.payload<{ workspaceId?: string }>(command).workspaceId));

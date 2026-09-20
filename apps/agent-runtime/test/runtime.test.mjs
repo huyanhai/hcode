@@ -204,6 +204,13 @@ test("runtime lists OpenAI-compatible models without exposing saved credentials"
       ok: true,
       data: { models: ["model-a", "model-b"] },
     });
+
+    const legacyListed = await runtime.request("models", {
+      profileId: profile.data.id,
+      baseUrl: `${origin}/v1`,
+    });
+    assert.equal(legacyListed.ok, true);
+    assert.deepEqual(legacyListed.data, { models: ["model-a", "model-b"] });
     assert.deepEqual(requests[0], {
       method: "GET",
       url: "/v1/models",

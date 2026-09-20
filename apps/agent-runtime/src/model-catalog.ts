@@ -42,7 +42,7 @@ export function sameBaseUrl(left: string, right: string): boolean {
 }
 
 export async function listProviderModels(baseUrl: string, apiKey: string): Promise<string[]> {
-  const endpoint = `${normalizeBaseUrl(baseUrl)}/models`;
+  const endpoint = `${normalizeBaseUrl(baseUrl)}models`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MODEL_LIST_TIMEOUT_MS);
   let response: Response;
