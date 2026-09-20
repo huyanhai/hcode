@@ -40,7 +40,7 @@ export const agentEventTypeSchema = z.enum([
 const commandBase = { requestId: z.string().min(1) };
 export const commandSchema = z.discriminatedUnion("type", [
   z.object({ ...commandBase, type: z.literal("profile/list"), payload: z.object({}).optional() }),
-  z.object({ ...commandBase, type: z.literal("profile/upsert"), payload: z.object({ id: z.string().optional(), name: z.string().min(1), provider: z.string().min(1), model: z.string().min(1), baseUrl: z.url(), apiKey: z.string().min(1).optional(), isDefault: z.boolean().optional() }) }),
+  z.object({ ...commandBase, type: z.literal("profile/upsert"), payload: z.object({ id: z.string().optional(), name: z.string().min(1), provider: z.string().min(1), baseUrl: z.url(), apiKey: z.string().min(1).optional(), isDefault: z.boolean().optional() }) }),
   z.object({ ...commandBase, type: z.literal("profile/delete"), payload: z.object({ id: z.string().min(1) }) }),
   z.object({ ...commandBase, type: z.literal("model/list"), payload: z.object({ profileId: z.string().min(1).optional(), baseUrl: z.url(), apiKey: z.string().min(1).optional() }) }),
   z.object({ ...commandBase, type: z.literal("models"), payload: z.object({ profileId: z.string().min(1).optional(), baseUrl: z.url(), apiKey: z.string().min(1).optional() }) }),

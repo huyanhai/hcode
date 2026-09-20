@@ -192,7 +192,7 @@ export class AgentRuntime {
     return this.ok(command, { turnId: pending.turnId });
   }
 
-  private upsertProfile(command: Command): RuntimeResponse {
+  private async upsertProfile(command: Command): Promise<RuntimeResponse> {
     const input = this.payload<UpsertProfilePayload>(command);
     const id = input.id ?? randomUUID();
     const existing = this.profiles.get(id);
@@ -204,7 +204,16 @@ export class AgentRuntime {
     }
     const apiKey = input.apiKey?.trim() || (existing && sameBaseUrl(baseUrl, existing.baseUrl) ? existing.apiKey : undefined);
     if (!apiKey) return this.error(command, "API_KEY_REQUIRED", "API Key is required");
-    const profile = this.profiles.upsert({ id, name: input.name, provider: input.provider, model: input.model, baseUrl, apiKey, isDefault: input.isDefault ?? false });
+    let model = existing && sameBaseUrl(baseUrl, existing.baseUrl) ? existing.model : undefined;
+    if (!model) {
+      try {
+        model = (await listProviderModels(baseUrl, apiKey))[0];
+      } catch (error) {
+        if (error instanceof ModelCatalogError) return this.error(command, error.code, error.message);
+        return this.error(command, "MODEL_LIST_NETWORK_ERROR", "无法获取模型列表");
+      }
+    }
+    const profile = this.profiles.upsert({ id, name: input.name, provider: input.provider, model, baseUrl, apiKey, isDefault: input.isDefault ?? false });
     this.publish(createEvent("profile/changed", profile));
     return this.ok(command, profile);
   }

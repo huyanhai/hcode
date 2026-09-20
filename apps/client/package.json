@@ -13,8 +13,8 @@
     "preview": "vite preview --mode web",
     "lint": "eslint .",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
-    "package": "pnpm build && electron-builder --config electron-builder.yml",
-    "package:dir": "pnpm build && electron-builder --dir --config electron-builder.yml"
+    "package": "pnpm --dir ../agent-runtime run build && pnpm build && electron-builder --config electron-builder.yml",
+    "package:dir": "pnpm --dir ../agent-runtime run build && pnpm build && electron-builder --dir --config electron-builder.yml"
   },
   "engines": {
     "node": "^22.13.0 || >=24.0.0"
@@ -40,6 +40,7 @@
     "vue": "3.5.42",
     "vue-i18n": "11.4.10",
     "vue-router": "5.3.1",
+    "vue-sonner": "2.0.9",
     "zod": "3.25.76"
   },
   "devDependencies": {
