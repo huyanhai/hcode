@@ -109,7 +109,6 @@ declare module 'vue' {
     MessageScrollerItem: typeof import('./src/components/ui/message-scroller/MessageScrollerItem.vue')['default']
     MessageScrollerProvider: typeof import('./src/components/ui/message-scroller/MessageScrollerProvider.vue')['default']
     MessageScrollerViewport: typeof import('./src/components/ui/message-scroller/MessageScrollerViewport.vue')['default']
-    ModelProfileSettings: typeof import('./src/components/settings/model-profile-settings.vue')['default']
     Primitive: typeof import('reka-ui')['Primitive']
     ResizableHandle: typeof import('./src/components/ui/resizable/ResizableHandle.vue')['default']
     ResizablePanelGroup: typeof import('./src/components/ui/resizable/ResizablePanelGroup.vue')['default']

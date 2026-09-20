@@ -29,10 +29,10 @@
           </ItemDescription>
         </ItemContent>
         <ItemActions>
-          <Button size="icon-sm" variant="ghost" @click="editProfile(profile)">
+          <Button type="button" size="icon-sm" variant="ghost" @click="editProfile(profile)">
             <Bolt />
           </Button>
-          <Button size="icon-sm" variant="ghost" @click="remove(profile)">
+          <Button type="button" size="icon-sm" variant="ghost" @click="remove(profile.id)">
             <Trash />
           </Button>
         </ItemActions>
@@ -41,7 +41,7 @@
   </section>
 
   <Dialog v-model:open="showDialog">
-    <form>
+    <form @submit.prevent="save">
       <DialogContent
         @pointer-down-outside="(event) => event.preventDefault()"
         @escape-key-down="(event) => event.preventDefault()"
@@ -92,13 +92,14 @@
         </DialogHeader>
         <DialogFooter>
           <Button
+            type="button"
             class="button-no-shadow"
             variant="outline"
             @click="showDialog = false"
           >
             取消
           </Button>
-          <Button type="submit" @click="save">保存</Button>
+          <Button type="submit">保存</Button>
         </DialogFooter>
       </DialogContent>
     </form>
@@ -141,7 +142,7 @@ const emptyDraft = (): ProfileDraft => ({
 const agent = useAgentStore();
 const showDialog = ref(false);
 
-const { profiles, availableModels } = storeToRefs(agent);
+const { profiles } = storeToRefs(agent);
 const draft = reactive<ProfileDraft>(emptyDraft());
 
 function startNew() {

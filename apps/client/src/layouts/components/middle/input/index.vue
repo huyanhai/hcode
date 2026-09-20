@@ -39,6 +39,7 @@
         <DropdownMenu v-model:open="menuOpen">
           <DropdownMenuTrigger as-child>
             <InputGroupButton
+              type="button"
               size="icon-sm"
               variant="ghost"
               class="button-full"
@@ -68,6 +69,7 @@
         </DropdownMenu>
 
         <Button
+          type="button"
           class="ml-1 button-full px-2 text-orange-600 hover:text-orange-600"
           variant="ghost"
           size="sm"
@@ -79,9 +81,14 @@
 
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
-            <Button size="sm" variant="ghost" class="ml-auto button-full px-2">
-              <span>{{ modelOptions.find((item) => item.id === selectedModel)?.name ?? "未配置模型" }}</span>
-              <span class="text-muted-foreground">高</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              class="ml-auto button-full px-2"
+            >
+              <span>{{ modelOptions.find((item) => item.id === selectedModel)?.model ?? "未配置模型" }}</span>
+              <!-- <span class="text-muted-foreground">高</span> -->
               <ChevronDown class="size-4 text-muted-foreground" />
             </Button>
           </DropdownMenuTrigger>
@@ -91,7 +98,7 @@
               :key="modelOption.id"
               @click="selectedModel = modelOption.id"
             >
-              {{ modelOption.name }} · {{ modelOption.model }}
+              {{ modelOption.model }}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

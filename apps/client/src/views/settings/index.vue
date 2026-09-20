@@ -22,7 +22,7 @@
       </aside>
       <main class="min-w-0 flex-1 overflow-y-auto">
         <div class="mx-auto w-full max-w-5xl px-8 py-8 lg:px-12">
-          <ModelProfileSettings />
+        <ModelProfileSettings />
         </div>
       </main>
     </div>
@@ -33,7 +33,7 @@
 import { ArrowLeft, Settings2 } from "@lucide/vue";
 import { useRouter } from "vue-router";
 import Button from "@/components/ui/button/Button.vue";
-import ModelProfileSettings from "@/components/settings/model-profile-settings.vue";
+import ModelProfileSettings from "./ModelProfileSettings.vue";
 
 const router = useRouter();
 function goBack() { void router.push({ name: "home" }); }
