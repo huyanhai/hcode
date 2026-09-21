@@ -1,6 +1,6 @@
 <template>
   <Button
-    class="menu-button justify-between shadow-none"
+    :class="cn('menu-button justify-between shadow-none', $attrs.class)"
     variant="ghost"
     v-bind="$attrs"
   >
@@ -13,6 +13,8 @@
   </Button>
 </template>
 <script lang="ts" setup>
+import { cn } from "@/lib/utils";
+
 //#region Props
 //#endregion
 //#region Emits
