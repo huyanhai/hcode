@@ -29,10 +29,20 @@
           </ItemDescription>
         </ItemContent>
         <ItemActions>
-          <Button type="button" size="icon-sm" variant="ghost" @click="editProfile(profile)">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            @click="editProfile(profile)"
+          >
             <Bolt />
           </Button>
-          <Button type="button" size="icon-sm" variant="ghost" @click="remove(profile.id)">
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            @click="remove(profile.id)"
+          >
             <Trash />
           </Button>
         </ItemActions>
@@ -40,75 +50,60 @@
     </div>
   </section>
 
-  <Dialog v-model:open="showDialog">
-    <form @submit.prevent="save">
-      <DialogContent
-        @pointer-down-outside="(event) => event.preventDefault()"
-        @escape-key-down="(event) => event.preventDefault()"
-      >
-        <DialogHeader>
-          <DialogTitle>{{ draft.id ? "编辑配置" : "新增配置" }}</DialogTitle>
-          <div class="mt-2 gap-2 flex flex-col">
-            <Field>
-              <FieldLabel>配置名称</FieldLabel>
-              <FieldContent>
-                <Input v-model="draft.name" placeholder="例如：OpenAI 主账号" />
-              </FieldContent>
-            </Field>
-            <Field>
-              <FieldLabel>Provider</FieldLabel>
-              <FieldContent>
-                <Input v-model="draft.provider" placeholder="openai" />
-              </FieldContent>
-            </Field>
-            <Field>
-              <FieldLabel>Base URL</FieldLabel>
-              <FieldContent>
-                <Input
-                  v-model="draft.baseUrl"
-                  type="url"
-                  placeholder="https://api.openai.com/v1"
-                />
-              </FieldContent>
-            </Field>
-            <Field>
-              <FieldLabel>API Key</FieldLabel>
-              <FieldContent>
-                <Input
-                  v-model="draft.apiKey"
-                  type="password"
-                  autocomplete="off"
-                  placeholder="sk-..."
-                />
-              </FieldContent>
-            </Field>
-            <Field>
-              <div class="flex items-center gap-3">
-                <Checkbox v-model="draft.isDefault" />
-                <FieldDescription>设为默认</FieldDescription>
-              </div>
-            </Field>
-          </div>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            type="button"
-            class="button-no-shadow"
-            variant="outline"
-            @click="showDialog = false"
-          >
-            取消
-          </Button>
-          <Button type="submit">保存</Button>
-        </DialogFooter>
-      </DialogContent>
-    </form>
-  </Dialog>
+  <GlobalDialog
+    v-model="showDialog"
+    :title="draft.id ? '编辑' : '新增'"
+    @submit="save"
+  >
+    <Field>
+      <FieldLabel>配置名称</FieldLabel>
+      <FieldContent>
+        <Input v-model="draft.name" placeholder="例如：OpenAI 主账号" />
+      </FieldContent>
+    </Field>
+    <Field>
+      <FieldLabel>Provider</FieldLabel>
+      <FieldContent>
+        <Input v-model="draft.provider" placeholder="openai" />
+      </FieldContent>
+    </Field>
+    <Field>
+      <FieldLabel>Base URL</FieldLabel>
+      <FieldContent>
+        <Input
+          v-model="draft.baseUrl"
+          type="url"
+          placeholder="https://api.openai.com/v1"
+        />
+      </FieldContent>
+    </Field>
+    <Field>
+      <FieldLabel>API Key</FieldLabel>
+      <FieldContent>
+        <Input
+          v-model="draft.apiKey"
+          type="password"
+          autocomplete="off"
+          placeholder="sk-..."
+        />
+      </FieldContent>
+    </Field>
+    <Field>
+      <FieldLabel>模型名称</FieldLabel>
+      <FieldContent>
+        <Input v-model="draft.model" placeholder="gpt-5.6-sol" />
+      </FieldContent>
+    </Field>
+    <Field>
+      <div class="flex items-center gap-3">
+        <Checkbox v-model="draft.isDefault" />
+        <FieldDescription>设为默认</FieldDescription>
+      </div>
+    </Field>
+  </GlobalDialog>
 </template>
 
 <script lang="ts" setup>
-import type { ModelProfileSummary } from "@hcode/agent-protocol";
-import { storeToRefs } from "pinia";
 import Button from "@/components/ui/button/Button.vue";
 import Input from "@/components/ui/input/Input.vue";
 import {
@@ -117,9 +112,17 @@ import {
   FieldDescription,
   FieldLabel,
 } from "@/components/ui/field";
-import { useAgentStore } from "@/stores/agent";
 import { Trash, Bolt } from "@lucide/vue";
 import { toast } from "vue-sonner";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
+import GlobalDialog from "@/components/global-dialog/index.vue";
+
+import {
+  deleteModelProfile,
+  listModelProfiles,
+  upsertModelProfile,
+  type ModelProfileSummary,
+} from "@/lib/model-profiles-api";
 
 type ProfileDraft = {
   id: string;
@@ -139,16 +142,33 @@ const emptyDraft = (): ProfileDraft => ({
   model: "",
   isDefault: false,
 });
-const agent = useAgentStore();
 const showDialog = ref(false);
 
-const { profiles } = storeToRefs(agent);
 const draft = reactive<ProfileDraft>(emptyDraft());
+const queryClient = useQueryClient();
+const profilesQuery = useQuery({
+  queryKey: ["model-profiles"],
+  queryFn: listModelProfiles,
+});
+const profiles = computed<ModelProfileSummary[]>(
+  () => profilesQuery.data.value ?? [],
+);
+const saveMutation = useMutation({
+  mutationFn: upsertModelProfile,
+  onSuccess: () =>
+    queryClient.invalidateQueries({ queryKey: ["model-profiles"] }),
+});
+const deleteMutation = useMutation({
+  mutationFn: deleteModelProfile,
+  onSuccess: () =>
+    queryClient.invalidateQueries({ queryKey: ["model-profiles"] }),
+});
 
 function startNew() {
   showDialog.value = true;
   Object.assign(draft, emptyDraft());
 }
+
 function editProfile(profile: ModelProfileSummary) {
   Object.assign(draft, {
     id: profile.id,
@@ -161,33 +181,19 @@ function editProfile(profile: ModelProfileSummary) {
   });
   showDialog.value = true;
 }
-async function save() {
-  // if (
-  //   !draft.name.trim() ||
-  //   !draft.provider.trim() ||
-  //   !validBaseUrl() ||
-  //   !draft.model.trim()
-  // ) {
-  //   errorMessage.value = "请完整填写配置名称、Provider、Base URL 和模型";
-  //   return;
-  // }
-  // if (!editing.value && !draft.apiKey.trim()) {
-  //   errorMessage.value = "新配置需要填写 API Key";
-  //   return;
-  // }
 
+async function save() {
   try {
-    const profile = await agent.saveProfile({
+    console.log("保存");
+    await saveMutation.mutateAsync({
       id: draft.id || undefined,
       name: draft.name.trim(),
       provider: draft.provider.trim(),
+      model: draft.model.trim(),
       baseUrl: draft.baseUrl.trim(),
       apiKey: draft.apiKey.trim() || undefined,
       isDefault: draft.isDefault,
     });
-    if (profile.id) {
-      editProfile(profile);
-    }
     showDialog.value = false;
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "操作失败");
@@ -195,14 +201,17 @@ async function save() {
 }
 async function remove(id: string) {
   try {
-    await agent.removeProfile(id);
-    startNew();
+    await deleteMutation.mutateAsync(id);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "操作失败");
   }
 }
 
-onMounted(async () => {
-  agent.initialize();
-});
+watch(
+  () => profilesQuery.error.value,
+  (error) => {
+    if (error)
+      toast.error(error instanceof Error ? error.message : "加载配置失败");
+  },
+);
 </script>

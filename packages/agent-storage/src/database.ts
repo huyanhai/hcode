@@ -29,8 +29,8 @@ function migrate(database: Database): void {
       base_url TEXT NOT NULL,
       api_key TEXT NOT NULL,
       is_default INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY,

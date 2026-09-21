@@ -1,0 +1,24 @@
+{
+  "name": "@hcode/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.cjs",
+  "exports": {
+    ".": "./dist/index.cjs",
+    "./runtime": "./dist/runtime.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/index.cjs --external:node:*",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "pnpm build && node --test test/*.test.mjs",
+    "start": "node dist/index.cjs"
+  },
+  "dependencies": {
+    "@hcode/agent-core": "workspace:*",
+    "@hcode/agent-protocol": "workspace:*",
+    "@hcode/agent-storage": "workspace:*",
+    "@hcode/agent-tools-local": "workspace:*"
+  },
+  "devDependencies": { "typescript": "^7.0.2", "@types/node": "^26.6.1", "esbuild": "^0.25.0" }
+}

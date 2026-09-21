@@ -22,3 +22,5 @@ output/playwright/
 *.log
 .DS_Store
 Thumbs.db
+packages/agent-storage/*.db
+packages/agent-storage/*.db-*

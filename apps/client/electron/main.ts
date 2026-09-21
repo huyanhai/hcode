@@ -1,12 +1,8 @@
-import { app, Menu, session, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, session } from "electron";
 import { join } from "node:path";
-import { RuntimeBridge } from "./runtime-bridge";
-
-const runtimeBridge = new RuntimeBridge();
 
 async function createWindow(): Promise<void> {
   const isMac = process.platform === "darwin";
-
 
   const window = new BrowserWindow({
     title: "Code Client",
@@ -18,7 +14,7 @@ async function createWindow(): Promise<void> {
     transparent: isMac ? true : false, // 关键：开启窗口透明
     frame: false, // 关键：移除默认窗口边框和标题栏
     titleBarStyle: "hiddenInset", // 或 'hidden' 或 'customButtonsOnHover'
-    vibrancy: isMac ? "under-window" : undefined, 
+    vibrancy: isMac ? "under-window" : undefined,
     backgroundMaterial: isMac ? undefined : "mica",
     visualEffectState: "followWindow",
     roundedCorners: true,
@@ -29,7 +25,6 @@ async function createWindow(): Promise<void> {
       sandbox: true,
     },
   });
-
 
   window.webContents.openDevTools({ mode: "detach" });
 
@@ -49,17 +44,21 @@ function handleStartupError(error: unknown): void {
   app.quit();
 }
 
-  app
+app
   .whenReady()
   .then(async () => {
-    runtimeBridge.registerIpc();
-    runtimeBridge.start();
     session.defaultSession.setPermissionRequestHandler(
       (_contents, _permission, callback) => {
         callback(false);
       },
     );
     session.defaultSession.setPermissionCheckHandler(() => false);
+    ipcMain.handle('workspace:select-directory', async (event) => {
+      const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      return result.canceled ? null : result.filePaths[0] ?? null;
+    });
 
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
@@ -72,7 +71,7 @@ function handleStartupError(error: unknown): void {
         { role: "windowMenu" },
       ]),
     );
-    
+
     await createWindow();
 
     app.on("activate", () => {
@@ -84,6 +83,5 @@ function handleStartupError(error: unknown): void {
   .catch(handleStartupError);
 
 app.on("window-all-closed", () => {
-  runtimeBridge.stop();
   if (process.platform !== "darwin") app.quit();
 });

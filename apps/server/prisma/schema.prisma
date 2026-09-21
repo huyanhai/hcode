@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:../../packages/agent-storage/agent.db"
+}
+
+model ModelProfile {
+  id        String  @id
+  name      String
+  provider  String
+  model     String
+  baseUrl   String  @map("base_url")
+  apiKey    String  @map("api_key")
+  isDefault Boolean @default(false) @map("is_default")
+  createdAt BigInt  @map("created_at")
+  updatedAt BigInt  @map("updated_at")
+
+  @@map("model_profiles")
+}
+
+model Workspace {
+  id           String @id
+  path         String @unique
+  name         String
+  createdAt    BigInt @map("created_at")
+  lastOpenedAt BigInt @map("last_opened_at")
+
+  @@map("workspaces")
+}
