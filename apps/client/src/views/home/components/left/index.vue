@@ -14,9 +14,7 @@
           </div>
           <template #action>
             <button
-              type="button"
-              class="button-hover rounded-md p-1"
-              aria-label="创建工作区"
+              class="button-hover"
               @click.stop="workspaceDialogOpen = true"
             >
               <Plus :size="ICON_SIZE" />
@@ -24,7 +22,10 @@
           </template>
         </ActionsButton>
         <template v-if="showProject">
-          <p v-if="!workspaces.length" class="px-2 text-xs text-muted-foreground">
+          <p
+            v-if="!workspaces.length"
+            class="px-2 text-xs text-muted-foreground"
+          >
             暂无工作区
           </p>
           <FoldMenus
@@ -48,7 +49,9 @@
             >
               {{ session.title }}
               <template #action>
-                <Archive class="button-hover" :size="10" />
+                <button class="button-hover">
+                  <Archive :size="ICON_SIZE" />
+                </button>
               </template>
             </ActionsButton>
           </FoldMenus>
@@ -147,13 +150,12 @@ const sessionsQuery = useQuery<SessionSummary[]>({
   queryFn: () => listSessions(),
 });
 const sessionsByWorkspace = computed<Record<string, SessionSummary[]>>(() => {
-  return (sessionsQuery.data.value ?? []).reduce<Record<string, SessionSummary[]>>(
-    (groups, session) => {
-      (groups[session.workspaceId] ??= []).push(session);
-      return groups;
-    },
-    {},
-  );
+  return (sessionsQuery.data.value ?? []).reduce<
+    Record<string, SessionSummary[]>
+  >((groups, session) => {
+    (groups[session.workspaceId] ??= []).push(session);
+    return groups;
+  }, {});
 });
 const selectedSessionId = useSessionSelection();
 
@@ -238,7 +240,9 @@ watch(
       selectedWorkspaceId.value = "";
       return;
     }
-    if (!items.some((workspace) => workspace.id === selectedWorkspaceId.value)) {
+    if (
+      !items.some((workspace) => workspace.id === selectedWorkspaceId.value)
+    ) {
       selectedWorkspaceId.value = items[0].id;
     }
   },
@@ -252,7 +256,9 @@ watch(
       selectedSessionId.value = "";
       return;
     }
-    const selected = items.find((session) => session.id === selectedSessionId.value);
+    const selected = items.find(
+      (session) => session.id === selectedSessionId.value,
+    );
     const next = selected ?? items[0];
     selectedSessionId.value = next.id;
     selectedWorkspaceId.value = next.workspaceId;

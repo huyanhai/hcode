@@ -5,21 +5,11 @@
       <FolderOpen v-else />
       {{ title }}
       <template #action>
-        <button
-          type="button"
-          class="button-hover rounded-md p-1"
-          aria-label="项目操作"
-          @click.stop
-        >
-          <Ellipsis :size="10" />
+        <button class="button-hover">
+          <Ellipsis :size="ICON_SIZE" />
         </button>
-        <button
-          type="button"
-          class="button-hover rounded-md p-1"
-          aria-label="创建会话"
-          @click.stop="createSession"
-        >
-          <SquarePen :size="10" />
+        <button @click.stop="createSession" class="button-hover">
+          <SquarePen :size="ICON_SIZE" />
         </button>
       </template>
     </ActionsButton>
@@ -30,6 +20,8 @@
 </template>
 <script lang="ts" setup>
 import { SquarePen, Ellipsis, Folder, FolderOpen } from "@lucide/vue";
+import { ICON_SIZE } from "@/constants";
+
 const open = ref(true);
 const emit = defineEmits<{ "create-session": [] }>();
 
