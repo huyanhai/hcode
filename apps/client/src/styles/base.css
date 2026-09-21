@@ -14,4 +14,8 @@
   .button-full {
     @apply rounded-full! items-center gap-1;
   }
+
+  .button-hover {
+    @apply opacity-50 hover:opacity-100!;
+  }
 }

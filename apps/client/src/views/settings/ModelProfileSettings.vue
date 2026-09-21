@@ -73,7 +73,7 @@
         <Input
           v-model="draft.baseUrl"
           type="url"
-          placeholder="https://api.openai.com/v1"
+          placeholder="https://api.openai.com/v1（Atria 请填写 https://api.atria-asi.ai/v1）"
         />
       </FieldContent>
     </Field>

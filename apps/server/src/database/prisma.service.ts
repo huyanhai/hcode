@@ -57,6 +57,34 @@ export class PrismaService
         last_opened_at BIGINT NOT NULL
       )
     `);
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at BIGINT NOT NULL,
+        updated_at BIGINT NOT NULL
+      )
+    `);
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS idx_sessions_workspace_updated ON sessions (workspace_id, updated_at)',
+    );
+    await this.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+        turn_id TEXT,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        created_at BIGINT NOT NULL,
+        UNIQUE(session_id, sequence)
+      )
+    `);
+    await this.$executeRawUnsafe(
+      'CREATE INDEX IF NOT EXISTS idx_messages_session_sequence ON messages (session_id, sequence)',
+    );
   }
 
   async onModuleDestroy(): Promise<void> {

@@ -7,7 +7,10 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "pnpm prisma:generate && nest build",
-    "prisma:generate": "prisma generate",
+    "prisma:generate": "node -e \"const fs = require('fs'); const path = require('path'); const base = path.resolve('node_modules/.pnpm'); if (!fs.existsSync(base)) process.exit(0); for (const entry of fs.readdirSync(base, { withFileTypes: true })) { if (!entry.isDirectory() || !entry.name.startsWith('@prisma+client@')) continue; const clientDir = path.join(base, entry.name, 'node_modules', '.prisma', 'client'); if (!fs.existsSync(clientDir)) continue; for (const file of fs.readdirSync(clientDir)) { if (/\\.tmp\\d+$/.test(file) || /^query_engine.*\\.tmp/.test(file)) { fs.rmSync(path.join(clientDir, file), { force: true }); } } }\" && prisma generate",
+    "prestart": "pnpm prisma:generate",
+    "prestart:dev": "pnpm prisma:generate",
+    "prestart:debug": "pnpm prisma:generate",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -21,6 +24,8 @@
     "test:e2e": "pnpm prisma:generate && jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@ai-sdk/openai": "^2.0.127",
+    "ai": "^6.0.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/platform-express": "^10.0.0",
@@ -40,7 +45,6 @@
     "@types/supertest": "^2.0.12",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
-    "ai": "^6.0.0",
     "eslint": "^8.42.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-prettier": "^5.0.0",

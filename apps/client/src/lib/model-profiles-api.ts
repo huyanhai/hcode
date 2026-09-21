@@ -31,6 +31,30 @@ export type WorkspaceSummary = {
   lastOpenedAt: string;
 };
 
+export type SessionSummary = {
+  id: string;
+  workspaceId: string;
+  title: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SessionMessageSummary = {
+  id: string;
+  sessionId: string;
+  turnId: string | null;
+  role: "user" | "assistant" | "tool" | "system";
+  content: string;
+  sequence: number;
+  createdAt: string;
+};
+
+export type SessionDetail = {
+  session: SessionSummary;
+  messages: SessionMessageSummary[];
+};
+
 type ApiResponse<T> = {
   code: "0" | "-1";
   data: T;
@@ -90,4 +114,81 @@ export function createWorkspace(input: { name: string; path: string }): Promise<
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function listSessions(workspaceId?: string): Promise<SessionSummary[]> {
+  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+  return request<SessionSummary[]>(`/api/sessions${query}`);
+}
+
+export function createSession(input: { workspaceId: string; title?: string }): Promise<SessionSummary> {
+  return request<SessionSummary>("/api/sessions/create", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function openSession(id: string): Promise<SessionDetail> {
+  return request<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`);
+}
+
+export function sendSessionMessage(
+  id: string,
+  input: { content: string; profileId?: string; model?: string },
+): Promise<SessionDetail> {
+  return request<SessionDetail>(
+    `/api/sessions/${encodeURIComponent(id)}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export async function streamSessionMessage(
+  id: string,
+  input: { content: string; profileId?: string; model?: string },
+  onText: (text: string) => void,
+): Promise<void> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/sessions/${encodeURIComponent(id)}/messages/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    },
+  );
+  if (!response.ok || !response.body) {
+    let message = "发送消息失败";
+    try {
+      const body = (await response.json()) as ApiResponse<unknown>;
+      message = body.message || message;
+    } catch {
+      // Keep the generic error when the server did not return JSON.
+    }
+    throw new Error(message);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let receivedText = false;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const text = decoder.decode(value, { stream: true });
+      if (text) {
+        receivedText = true;
+        onText(text);
+      }
+    }
+    const remaining = decoder.decode();
+    if (remaining) {
+      receivedText = true;
+      onText(remaining);
+    }
+    if (!receivedText) throw new Error("模型没有返回内容");
+  } finally {
+    reader.releaseLock();
+  }
 }

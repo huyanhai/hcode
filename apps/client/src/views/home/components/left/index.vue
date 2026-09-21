@@ -5,7 +5,6 @@
         <SquarePen animateOnHover triggerTarget="parent" />
         新会话
       </Button>
-
       <div class="min-h-0 flex-1">
         <ActionsButton @click="showProject = !showProject">
           <div class="text-sm text-muted-foreground flex gap-1 items-center">
@@ -14,17 +13,46 @@
             <ChevronUp :size="ICON_SIZE" v-else />
           </div>
           <template #action>
-            <SquarePen :size="10" />
+            <button
+              type="button"
+              class="button-hover rounded-md p-1"
+              aria-label="创建工作区"
+              @click.stop="workspaceDialogOpen = true"
+            >
+              <Plus :size="ICON_SIZE" />
+            </button>
           </template>
         </ActionsButton>
-        <FoldMenus v-show="showProject" title="项目1">
-          <ActionsButton>
-            123
-            <template #action>
-              <Archive :size="10" />
-            </template>
-          </ActionsButton>
-        </FoldMenus>
+        <template v-if="showProject">
+          <p v-if="!workspaces.length" class="px-2 text-xs text-muted-foreground">
+            暂无工作区
+          </p>
+          <FoldMenus
+            v-else
+            v-for="item in workspaces"
+            :key="item.id"
+            :title="item.name"
+            @create-session="createWorkspaceSession(item.id)"
+          >
+            <p
+              v-if="!sessionsByWorkspace[item.id]?.length"
+              class="px-8 py-1 text-xs text-muted-foreground"
+            >
+              暂无会话
+            </p>
+            <ActionsButton
+              v-for="session in sessionsByWorkspace[item.id] ?? []"
+              :key="session.id"
+              :class="session.id === selectedSessionId ? 'bg-muted' : ''"
+              @click="selectSession(item.id, session.id)"
+            >
+              {{ session.title }}
+              <template #action>
+                <Archive class="button-hover" :size="10" />
+              </template>
+            </ActionsButton>
+          </FoldMenus>
+        </template>
       </div>
     </div>
     <Settings class="border-t p-2" />
@@ -72,7 +100,7 @@
 
 <script lang="ts" setup>
 import { SquarePen } from "@respeak/lucide-motion-vue";
-import { ChevronDown, ChevronUp } from "@lucide/vue";
+import { ChevronDown, ChevronUp, Plus, Archive } from "@lucide/vue";
 import Button from "@/components/ui/button/Button.vue";
 import Settings from "./settings/index.vue";
 import FoldMenus from "./fold-menus/index.vue";
@@ -89,14 +117,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import {
   createWorkspace,
   listWorkspaces,
+  createSession,
+  listSessions,
+  type SessionSummary,
   type WorkspaceSummary,
 } from "@/lib/model-profiles-api";
 import { toast } from "vue-sonner";
 import { ICON_SIZE } from "@/constants";
+import { useSessionSelection } from "@/stores/session-selection";
 
 const showProject = ref(true);
 
-const sessions = ref<{ id: string; title: string }[]>();
 const workspaceDialogOpen = ref(false);
 const workspaceDraft = reactive({ name: "", path: "" });
 const selectedWorkspaceId = useLocalStorage<string>(
@@ -104,10 +135,28 @@ const selectedWorkspaceId = useLocalStorage<string>(
   "",
 );
 const queryClient = useQueryClient();
-const workspacesQuery = useQuery({
+const workspacesQuery = useQuery<WorkspaceSummary[]>({
   queryKey: ["workspaces"],
   queryFn: listWorkspaces,
 });
+const workspaces = computed<WorkspaceSummary[]>(
+  () => workspacesQuery.data.value ?? [],
+);
+const sessionsQuery = useQuery<SessionSummary[]>({
+  queryKey: ["sessions"],
+  queryFn: () => listSessions(),
+});
+const sessionsByWorkspace = computed<Record<string, SessionSummary[]>>(() => {
+  return (sessionsQuery.data.value ?? []).reduce<Record<string, SessionSummary[]>>(
+    (groups, session) => {
+      (groups[session.workspaceId] ??= []).push(session);
+      return groups;
+    },
+    {},
+  );
+});
+const selectedSessionId = useSessionSelection();
+
 const createWorkspaceMutation = useMutation({
   mutationFn: createWorkspace,
   onSuccess: (workspace) => {
@@ -116,9 +165,43 @@ const createWorkspaceMutation = useMutation({
   },
 });
 
+const createSessionMutation = useMutation({
+  mutationFn: createSession,
+  onSuccess: (session) => {
+    selectedWorkspaceId.value = session.workspaceId;
+    selectedSessionId.value = session.id;
+    queryClient.invalidateQueries({ queryKey: ["sessions"] });
+  },
+  onError: (error) => {
+    toast.error(error instanceof Error ? error.message : "创建会话失败");
+  },
+});
+
 function startNewSession() {
-  if (selectedWorkspaceId.value) return;
+  if (selectedWorkspaceId.value) {
+    void createWorkspaceSession(selectedWorkspaceId.value);
+    return;
+  }
+  if (workspaces.value[0]) {
+    selectedWorkspaceId.value = workspaces.value[0].id;
+    void createWorkspaceSession(workspaces.value[0].id);
+    return;
+  }
   workspaceDialogOpen.value = true;
+}
+
+async function createWorkspaceSession(workspaceId: string) {
+  if (createSessionMutation.isPending.value) return;
+  try {
+    await createSessionMutation.mutateAsync({ workspaceId });
+  } catch {
+    // onError already shows the request error.
+  }
+}
+
+function selectSession(workspaceId: string, sessionId: string) {
+  selectedWorkspaceId.value = workspaceId;
+  selectedSessionId.value = sessionId;
 }
 
 async function selectWorkspaceDirectory() {
@@ -148,14 +231,32 @@ async function createSelectedWorkspace() {
   }
 }
 
-watch(workspacesQuery.data, (workspaces) => {
-  if (
-    selectedWorkspaceId.value &&
-    !workspaces?.some(
-      (workspace: WorkspaceSummary) =>
-        workspace.id === selectedWorkspaceId.value,
-    )
-  )
-    selectedWorkspaceId.value = "";
-});
+watch(
+  workspacesQuery.data,
+  (items) => {
+    if (!items?.length) {
+      selectedWorkspaceId.value = "";
+      return;
+    }
+    if (!items.some((workspace) => workspace.id === selectedWorkspaceId.value)) {
+      selectedWorkspaceId.value = items[0].id;
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  sessionsQuery.data,
+  (items) => {
+    if (!items?.length) {
+      selectedSessionId.value = "";
+      return;
+    }
+    const selected = items.find((session) => session.id === selectedSessionId.value);
+    const next = selected ?? items[0];
+    selectedSessionId.value = next.id;
+    selectedWorkspaceId.value = next.workspaceId;
+  },
+  { immediate: true },
+);
 </script>

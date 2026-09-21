@@ -10,6 +10,7 @@ import type {
   UpsertModelProfileDto,
 } from './model-profiles.dto';
 import { randomUUID } from 'node:crypto';
+import { normalizeProviderBaseUrl } from './base-url';
 
 @Injectable()
 export class ModelProfilesService {
@@ -111,7 +112,7 @@ export class ModelProfilesService {
       throw new NotFoundException({ message: '模型配置不存在' });
     }
 
-    const modelsUrl = `${profile.baseUrl.replace(/\/+$/, '')}/models`;
+    const modelsUrl = `${normalizeProviderBaseUrl(profile.baseUrl)}/models`;
     let response: Response;
     try {
       response = await fetch(modelsUrl, {
@@ -173,7 +174,7 @@ export class ModelProfilesService {
       name: profile.name,
       provider: profile.provider,
       model: profile.model,
-      baseUrl: profile.baseUrl,
+      baseUrl: normalizeProviderBaseUrl(profile.baseUrl),
       isDefault: profile.isDefault,
       createdAt: profile.createdAt.toString(),
       updatedAt: profile.updatedAt.toString(),

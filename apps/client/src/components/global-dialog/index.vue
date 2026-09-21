@@ -29,7 +29,7 @@
 <script lang="ts" setup>
 const show = defineModel({ type: Boolean });
 //#region Props
-const { title, loading } = defineProps<{ title: string; loading?: boolean }>();
+const { title } = defineProps<{ title: string; loading?: boolean }>();
 //#endregion
 //#region Emits
 defineEmits(["submit"]);
