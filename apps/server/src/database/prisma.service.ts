@@ -77,6 +77,11 @@ export class PrismaService
         turn_id TEXT,
         role TEXT NOT NULL,
         content TEXT NOT NULL,
+        reasoning TEXT,
+        tool_calls TEXT,
+        stream_status TEXT,
+        started_at BIGINT,
+        completed_at BIGINT,
         sequence INTEGER NOT NULL,
         created_at BIGINT NOT NULL,
         UNIQUE(session_id, sequence)
@@ -85,6 +90,7 @@ export class PrismaService
     await this.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS idx_messages_session_sequence ON messages (session_id, sequence)',
     );
+    await this.migrateMessageStreamColumns();
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -125,6 +131,25 @@ export class PrismaService
       );
     } finally {
       await this.$executeRawUnsafe('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  private async migrateMessageStreamColumns(): Promise<void> {
+    const columns = await this.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info(messages)',
+    );
+    const existing = new Set(columns.map((column) => column.name));
+    const additions = [
+      ['reasoning', 'TEXT'],
+      ['tool_calls', 'TEXT'],
+      ['stream_status', 'TEXT'],
+      ['started_at', 'BIGINT'],
+      ['completed_at', 'BIGINT'],
+    ] as const;
+    for (const [name, type] of additions) {
+      if (!existing.has(name)) {
+        await this.$executeRawUnsafe(`ALTER TABLE messages ADD COLUMN ${name} ${type}`);
+      }
     }
   }
 }

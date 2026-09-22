@@ -5,7 +5,7 @@
         <SquarePen animateOnHover triggerTarget="parent" />
         新会话
       </Button>
-      <div class="min-h-0 flex-1">
+      <div class="min-h-0 flex-1 flex flex-col gap-1">
         <ActionsButton @click="showProject = !showProject">
           <div class="text-sm text-muted-foreground flex gap-1 items-center">
             项目

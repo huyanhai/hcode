@@ -112,13 +112,16 @@
           <Mic />
         </InputGroupButton>
         <InputGroupButton
-          type="submit"
+          :type="sending ? 'button' : 'submit'"
           variant="default"
           size="icon-sm"
           class="ml-1 button-full"
-          :disabled="!canSubmit || disabled"
+          :disabled="sending ? false : !canSubmit || disabled"
+          :aria-label="sending ? '停止生成' : '发送消息'"
+          @click="sending ? emit('stop') : undefined"
         >
-          <ArrowUp />
+          <ArrowUp v-if="!sending" />
+          <Square v-else class="fill-current" />
         </InputGroupButton>
       </InputGroupAddon>
     </InputGroup>
@@ -134,6 +137,7 @@ import {
   Paperclip,
   Plus,
   ShieldCheck,
+  Square,
   Telescope,
 } from "@lucide/vue";
 import { computed, onBeforeUnmount, ref } from "vue";
@@ -149,7 +153,11 @@ export interface SubmitPayload {
   fullAccess: boolean;
 }
 
-const props = defineProps<{ models?: string[]; disabled?: boolean }>();
+const props = defineProps<{
+  models?: string[];
+  disabled?: boolean;
+  sending?: boolean;
+}>();
 
 const modelData = defineModel<SubmitPayload>({ required: true });
 
@@ -158,7 +166,9 @@ const inputAreaRef = ref<InstanceType<typeof InputArea>>();
 const menuOpen = ref(false);
 const selectedModel = computed({
   get: () => modelData.value.model,
-  set: (value: string) => { modelData.value.model = value; },
+  set: (value: string) => {
+    modelData.value.model = value;
+  },
 });
 const modelOptions = computed(() => props.models ?? []);
 const objectUrls = new Set<string>();
@@ -166,13 +176,15 @@ const objectUrls = new Set<string>();
 //#region Props
 //#endregion
 //#region Emits
-const emit = defineEmits(["submit", "editComment"]);
+const emit = defineEmits(["submit", "stop", "editComment"]);
 //#endregion
 //#region Hooks
 //#endregion
 //#region Computed
 const canSubmit = computed(() =>
-  Boolean(modelData.value.attachments.length || !!modelData.value.content.trim()),
+  Boolean(
+    modelData.value.attachments.length || !!modelData.value.content.trim(),
+  ),
 );
 //#endregion
 //#region Watch

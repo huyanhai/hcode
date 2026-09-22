@@ -404,7 +404,13 @@ describe('AppController (e2e)', () => {
         .get(`/api/sessions/${session.body.data.id}`)
         .expect(200);
       expect(opened.body.data.messages.at(-1)).toEqual(
-        expect.objectContaining({ role: 'assistant', content: 'hello stream' }),
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'hello stream',
+          streamStatus: 'completed',
+          startedAt: expect.any(String),
+          completedAt: expect.any(String),
+        }),
       );
     } finally {
       await new Promise<void>((resolve, reject) =>

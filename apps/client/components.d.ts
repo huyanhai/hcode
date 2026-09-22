@@ -11,6 +11,10 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
+    Accordion: typeof import('./src/components/ui/accordion/Accordion.vue')['default']
+    AccordionContent: typeof import('./src/components/ui/accordion/AccordionContent.vue')['default']
+    AccordionItem: typeof import('./src/components/ui/accordion/AccordionItem.vue')['default']
+    AccordionTrigger: typeof import('./src/components/ui/accordion/AccordionTrigger.vue')['default']
     ActionsButton: typeof import('./src/components/actions-button/index.vue')['default']
     Attachment: typeof import('./src/components/ui/attachment/Attachment.vue')['default']
     AttachmentAction: typeof import('./src/components/ui/attachment/AttachmentAction.vue')['default']
@@ -118,6 +122,7 @@ declare module 'vue' {
     Primitive: typeof import('reka-ui')['Primitive']
     ResizableHandle: typeof import('./src/components/ui/resizable/ResizableHandle.vue')['default']
     ResizablePanelGroup: typeof import('./src/components/ui/resizable/ResizablePanelGroup.vue')['default']
+    ResponseProgress: typeof import('./src/components/response-progress/ResponseProgress.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     Separator: typeof import('./src/components/ui/separator/Separator.vue')['default']

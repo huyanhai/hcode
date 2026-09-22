@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="flex flex-col gap-1">
     <ActionsButton @click="open = !open">
       <Folder v-if="open" />
       <FolderOpen v-else />
@@ -13,7 +13,7 @@
         </button>
       </template>
     </ActionsButton>
-    <div v-show="open">
+    <div v-show="open" class="flex flex-col gap-1">
       <slot />
     </div>
   </div>

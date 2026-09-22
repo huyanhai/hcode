@@ -12,7 +12,7 @@
       </Button>
     </header>
 
-    <ItemGroup class="border rounded">
+    <ItemGroup class="border rounded-xl">
       <template v-for="(profile, index) in profiles" :key="profile.id">
         <div class="h-20">
           <Item>

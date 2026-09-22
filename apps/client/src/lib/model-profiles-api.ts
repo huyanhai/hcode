@@ -1,3 +1,8 @@
+import type {
+  ResponseStreamStatus,
+  ResponseToolCall,
+} from "@/components/response-progress";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
 
@@ -49,7 +54,10 @@ export type SessionMessageSummary = {
   sequence: number;
   createdAt: string;
   reasoning?: string;
-  toolCalls?: string[];
+  toolCalls?: ResponseToolCall[];
+  streamStatus?: ResponseStreamStatus;
+  startedAt?: string;
+  completedAt?: string;
 };
 
 export type SessionStreamEvent =
@@ -239,6 +247,7 @@ export async function streamSessionMessage(
   id: string,
   input: { content: string; profileId?: string; model?: string; fullAccess?: boolean },
   onEvent: (event: SessionStreamEvent) => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE_URL}/api/sessions/${encodeURIComponent(id)}/messages/stream`,
@@ -246,6 +255,7 @@ export async function streamSessionMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
+      signal,
     },
   );
   if (!response.ok || !response.body) {

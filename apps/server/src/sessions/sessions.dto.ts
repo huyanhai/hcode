@@ -47,6 +47,25 @@ export type MessageSummary = {
   content: string;
   sequence: number;
   createdAt: string;
+  reasoning?: string;
+  toolCalls?: MessageToolCall[];
+  streamStatus?: MessageStreamStatus;
+  startedAt?: string;
+  completedAt?: string;
+};
+
+export type MessageStreamStatus =
+  | 'thinking'
+  | 'streaming'
+  | 'completed'
+  | 'failed'
+  | 'stopped';
+
+export type MessageToolCall = {
+  id: string;
+  toolName: string;
+  status: 'in-progress' | 'completed' | 'failed';
+  output?: unknown;
 };
 
 export type SessionDetail = {

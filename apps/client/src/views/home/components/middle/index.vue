@@ -6,7 +6,7 @@
         default-scroll-position="last-anchor"
       >
         <MessageScroller>
-          <MessageScrollerViewport class="no-scrollbar">
+          <MessageScrollerViewport class="no-scrollbar pb-10">
             <MessageScrollerContent>
               <MessageScrollerItem
                 v-for="message in messages"
@@ -24,14 +24,14 @@
                   </Bubble>
                 </div>
                 <template v-else>
-                  <Thinking v-if="message.reasoning">
-                    {{ message.reasoning }}
-                  </Thinking>
-                  <template v-if="message.toolCalls?.length">
-                    <Tools v-for="tool in message.toolCalls" :key="tool">
-                      {{ tool }}
-                    </Tools>
-                  </template>
+                  <ResponseProgress
+                    v-if="message.streamStatus"
+                    :status="message.streamStatus"
+                    :started-at="message.startedAt"
+                    :completed-at="message.completedAt"
+                    :reasoning="message.reasoning"
+                    :tool-calls="message.toolCalls"
+                  />
                   <Markdown :content="message.content" />
                 </template>
               </MessageScrollerItem>
@@ -41,9 +41,8 @@
             class="rounded-full border glass-bg"
             direction="end"
           >
-            <Ellipsis
-              class="w-6! h-6! dot-bounce [&>circle:nth-child(2)]:[animation-delay:0.2s] [&>circle:nth-child(3)]:[animation-delay:0.4s]"
-            />
+            <Ellipsis class="w-6! h-6! dot-bounce opacity-50" v-if="sending" />
+            <MoveDown class="opacity-50" v-else />
           </MessageScrollerButton>
         </MessageScroller>
       </MessageScrollerProvider>
@@ -61,39 +60,23 @@
           {{ JSON.stringify(approval.input, null, 2) }}
         </pre>
         <div class="mt-2 flex gap-2">
-          <Button size="sm" @click="answerApproval(approval.approvalId, true)">
-            允许
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            @click="answerApproval(approval.approvalId, false)"
-          >
-            拒绝
-          </Button>
+          <Button size="sm"> 允许 </Button>
+          <Button size="sm" variant="outline"> 拒绝 </Button>
         </div>
       </div>
     </div> -->
     <Input
       v-model="data"
       :models="modelOptions"
-      :disabled="sending || !selectedSessionId"
+      :sending="sending"
+      :disabled="!selectedSessionId"
       @submit="submit"
+      @stop="stopTurn"
     />
-    <Button
-      type="button"
-      size="sm"
-      variant="outline"
-      class="self-end"
-      :disabled="!sending"
-    >
-      停止
-    </Button>
   </div>
 </template>
 <script lang="ts" setup>
 import Input, { type SubmitPayload } from "./input/index.vue";
-import Button from "@/components/ui/button/Button.vue";
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
 import {
   listModelProfiles,
@@ -106,10 +89,13 @@ import {
 } from "@/lib/model-profiles-api";
 import { toast } from "vue-sonner";
 import { useSessionSelection } from "@/stores/session-selection";
-import Thinking from "./markers/Thinking.vue";
-import Tools from "./markers/Tools.vue";
 import Markdown from "./markdown/index.vue";
-import { Ellipsis } from "@lucide/vue";
+import { Ellipsis, MoveDown } from "@lucide/vue";
+import {
+  ResponseProgress,
+  type ResponseStreamStatus,
+  type ResponseToolCall,
+} from "@/components/response-progress";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -120,6 +106,7 @@ const data = reactive<SubmitPayload>({
 });
 
 const sending = ref(false);
+let abortController: AbortController | undefined;
 
 //#region Props
 //#endregion
@@ -206,7 +193,9 @@ async function submit() {
     role: "assistant" as const,
     content: "",
     reasoning: "",
-    toolCalls: [] as string[],
+    toolCalls: [] as ResponseToolCall[],
+    streamStatus: "thinking" as ResponseStreamStatus,
+    startedAt: String(Date.now()),
     sequence: userMessage.sequence + 1,
     createdAt: String(Date.now()),
   };
@@ -216,6 +205,7 @@ async function submit() {
       : old,
   );
   try {
+    abortController = new AbortController();
     await streamSessionMessage(
       sessionId,
       {
@@ -224,71 +214,154 @@ async function submit() {
         model: data.model || undefined,
         fullAccess: data.fullAccess,
       },
-      (event: SessionStreamEvent) => {
-        queryClient.setQueryData<SessionDetail>(
-          ["session", sessionId],
-          (old) => {
-            if (!old) return old;
-            return {
-              ...old,
-              messages: old.messages.map((message) =>
-                message.id === assistantMessageId
-                  ? event.type === "text"
-                    ? { ...message, content: `${message.content}${event.text}` }
-                    : event.type === "reasoning"
-                      ? {
-                          ...message,
-                          reasoning: `${message.reasoning ?? ""}${event.text}`,
-                        }
-                      : event.type === "tool-call"
-                        ? {
-                            ...message,
-                            toolCalls: [
-                              ...(message.toolCalls ?? []),
-                              `调用 ${event.toolName}`,
-                            ],
-                          }
-                        : event.type === "tool-result"
-                          ? {
-                              ...message,
-                              toolCalls: [
-                                ...(message.toolCalls ?? []),
-                                `${event.toolName} 完成`,
-                              ],
-                            }
-                          : message
-                  : message,
-              ),
-            };
-          },
-        );
-      },
+      (event: SessionStreamEvent) =>
+        updateStreamMessage(sessionId, assistantMessageId, event),
+      abortController.signal,
     );
     const detail = await openSession(sessionId);
     queryClient.setQueryData(["session", sessionId], detail);
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
   } catch (error) {
-    queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
-      old
-        ? {
-            ...old,
-            messages: old.messages.filter(
-              (message) => message.id !== assistantMessageId,
-            ),
-          }
-        : old,
+    const stopped = abortController?.signal.aborted ?? false;
+    updateMessageStatus(
+      sessionId,
+      assistantMessageId,
+      stopped ? "stopped" : "failed",
     );
-    toast.error(error instanceof Error ? error.message : "发送消息失败");
+    if (!stopped) {
+      toast.error(error instanceof Error ? error.message : "发送消息失败");
+    }
   } finally {
+    abortController = undefined;
     sending.value = false;
   }
 }
 
-// async function answerApproval(approvalId: string, approved: boolean) {}
+function updateStreamMessage(
+  sessionId: string,
+  messageId: string,
+  event: SessionStreamEvent,
+) {
+  queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) => {
+    if (!old) return old;
+    return {
+      ...old,
+      messages: old.messages.map((message) => {
+        if (message.id !== messageId) return message;
+        if (event.type === "done") {
+          return {
+            ...message,
+            streamStatus: "completed",
+            completedAt: String(Date.now()),
+          };
+        }
+        if (event.type === "error") {
+          return {
+            ...message,
+            streamStatus: "failed",
+            completedAt: String(Date.now()),
+          };
+        }
+        const next = {
+          ...message,
+          streamStatus:
+            message.streamStatus === "thinking" ? "streaming" : message.streamStatus,
+        };
+        if (event.type === "text") {
+          return { ...next, content: `${message.content}${event.text}` };
+        }
+        if (event.type === "reasoning") {
+          return {
+            ...next,
+            reasoning: `${message.reasoning ?? ""}${event.text}`,
+          };
+        }
+        if (event.type === "tool-call") {
+          return {
+            ...next,
+            toolCalls: [
+              ...(message.toolCalls ?? []),
+              {
+                id: event.toolCallId,
+                toolName: event.toolName,
+                status: "in-progress",
+              },
+            ],
+          };
+        }
+        if (event.type === "tool-result") {
+          return {
+            ...next,
+            toolCalls: updateToolCall(
+              message.toolCalls ?? [],
+              event.toolCallId,
+              event.toolName,
+              "completed",
+              event.output,
+            ),
+          };
+        }
+        if (event.type === "tool-progress") {
+          const id = event.itemId ?? `${event.toolName}:provider`;
+          const status =
+            event.status === "failed"
+              ? "failed"
+              : event.status === "completed"
+                ? "completed"
+                : "in-progress";
+          return {
+            ...next,
+            toolCalls: updateToolCall(
+              message.toolCalls ?? [],
+              id,
+              event.toolName,
+              status,
+              event.data,
+            ),
+          };
+        }
+        return next;
+      }),
+    };
+  });
+}
 
-// async function stopTurn() {
-//   await agent.stop();
-// }
+function updateToolCall(
+  toolCalls: ResponseToolCall[],
+  id: string,
+  toolName: string,
+  status: ResponseToolCall["status"],
+  output?: unknown,
+): ResponseToolCall[] {
+  const existing = toolCalls.find((toolCall) => toolCall.id === id);
+  if (!existing) return [...toolCalls, { id, toolName, status, output }];
+  return toolCalls.map((toolCall) =>
+    toolCall.id === id ? { ...toolCall, status, output } : toolCall,
+  );
+}
+
+function updateMessageStatus(
+  sessionId: string,
+  messageId: string,
+  streamStatus: ResponseStreamStatus,
+) {
+  queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
+    old
+      ? {
+          ...old,
+          messages: old.messages.map((message) =>
+            message.id === messageId
+              ? { ...message, streamStatus, completedAt: String(Date.now()) }
+              : message,
+          ),
+        }
+      : old,
+  );
+}
+
+function stopTurn() {
+  abortController?.abort();
+}
 //#endregion
 //#region Life Cycle
 //#endregion
@@ -298,20 +371,30 @@ async function submit() {
 
 <style>
 @keyframes dot-bounce {
-  0% {
+  0%,
+  80%,
+  100% {
     transform: translateY(0);
   }
-  25% {
-    transform: translateY(2px);
+  40% {
+    transform: translateY(-3px);
   }
-  50% {
-    transform: translateY(0px);
-  }
-  75% {
-    transform: translateY(-2px);
-  }
-  100% {
-    transform: translateY(0px);
-  }
+}
+
+.dot-bounce circle {
+  animation: dot-bounce 1.2s ease-in-out infinite;
+  /* 关键：SVG 元素必须指定，否则 translateY 会以整个画布为参照跑飞 */
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.dot-bounce circle:nth-child(3) {
+  animation-delay: 0s;
+}
+.dot-bounce circle:nth-child(1) {
+  animation-delay: 0.2s;
+}
+.dot-bounce circle:nth-child(2) {
+  animation-delay: 0.4s;
 }
 </style>

@@ -11,6 +11,8 @@ import { PrismaService } from '../database/prisma.service';
 import type {
   CreateSessionDto,
   MessageSummary,
+  MessageToolCall,
+  MessageStreamStatus,
   SendMessageDto,
   SessionDetail,
   SessionSummary,
@@ -81,6 +83,9 @@ export class SessionsService {
     input: SendMessageDto,
     response: ServerResponse,
   ): Promise<void> {
+    const abortController = new AbortController();
+    const abort = () => abortController.abort();
+    response.once('close', abort);
     try {
       response.statusCode = 200;
       response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -88,13 +93,16 @@ export class SessionsService {
       response.setHeader('Connection', 'keep-alive');
       const result = await this.run(id, input, (event) => {
         response.write(`data: ${JSON.stringify(event)}\n\n`);
-      });
-      response.write(
-        `data: ${JSON.stringify({ type: 'done', text: result.text })}\n\n`,
-      );
-      response.end();
+      }, abortController.signal);
+      if (!response.destroyed) {
+        response.write(
+          `data: ${JSON.stringify({ type: 'done', text: result.text })}\n\n`,
+        );
+        response.end();
+      }
     } catch (error) {
       console.error('AI stream failed', error);
+      if (response.destroyed) return;
       if (!response.headersSent) {
         response.statusCode = 502;
         response.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -107,6 +115,8 @@ export class SessionsService {
         );
         response.end();
       }
+    } finally {
+      response.off('close', abort);
     }
   }
 
@@ -114,6 +124,7 @@ export class SessionsService {
     id: string,
     input: SendMessageDto,
     onEvent?: (event: CoreStreamEvent) => void,
+    abortSignal?: AbortSignal,
   ): Promise<{ text: string }> {
     const session = await this.prisma.session.findUnique({
       where: { id },
@@ -157,30 +168,51 @@ export class SessionsService {
         .map((message) => ({ role: message.role, content: message.content })),
       { role: 'user', content },
     ];
+    const startedAt = BigInt(Date.now());
     let text = '';
-    console.log('执行');
-    for await (const event of streamAgent(
-      agentProfile,
-      {
-        workspaceRoot: session.workspace.path,
-        permissionMode: input.fullAccess ? 'full' : 'restricted',
-      },
-      messages,
-      {},
-      undefined,
-      Boolean(onEvent),
-    )) {
-      if (event.type === 'text') text += event.text;
-      onEvent?.(event);
-      if (event.type === 'error') throw event.error;
-    }
-    if (text.trim()) {
-      await this.appendMessage(id, 'assistant', text);
-      await this.prisma.session.update({
-        where: { id },
-        data: { updatedAt: BigInt(Date.now()) },
+    let reasoning = '';
+    const toolCalls: MessageToolCall[] = [];
+    let streamStatus: MessageStreamStatus = 'completed';
+    try {
+      for await (const event of streamAgent(
+        agentProfile,
+        {
+          workspaceRoot: session.workspace.path,
+          permissionMode: input.fullAccess ? 'full' : 'restricted',
+        },
+        messages,
+        {},
+        abortSignal,
+        Boolean(onEvent),
+      )) {
+        if (event.type === 'text') text += event.text;
+        if (event.type === 'reasoning') reasoning += event.text;
+        this.captureToolEvent(toolCalls, event);
+        onEvent?.(event);
+        if (event.type === 'error') throw event.error;
+      }
+    } catch (error) {
+      streamStatus = abortSignal?.aborted ? 'stopped' : 'failed';
+      await this.appendAssistantMessage(id, text, {
+        reasoning,
+        toolCalls,
+        streamStatus,
+        startedAt,
+        completedAt: BigInt(Date.now()),
       });
+      throw error;
     }
+    await this.appendAssistantMessage(id, text, {
+      reasoning,
+      toolCalls,
+      streamStatus,
+      startedAt,
+      completedAt: BigInt(Date.now()),
+    });
+    await this.prisma.session.update({
+      where: { id },
+      data: { updatedAt: BigInt(Date.now()) },
+    });
     return { text };
   }
 
@@ -203,6 +235,84 @@ export class SessionsService {
         createdAt: BigInt(Date.now()),
       },
     });
+  }
+
+  private async appendAssistantMessage(
+    sessionId: string,
+    content: string,
+    metadata: {
+      reasoning: string;
+      toolCalls: MessageToolCall[];
+      streamStatus: MessageStreamStatus;
+      startedAt: bigint;
+      completedAt: bigint;
+    },
+  ) {
+    const last = await this.prisma.message.findFirst({
+      where: { sessionId },
+      orderBy: { sequence: 'desc' },
+    });
+    return this.prisma.message.create({
+      data: {
+        id: randomUUID(),
+        sessionId,
+        role: 'assistant',
+        content,
+        reasoning: metadata.reasoning || null,
+        toolCalls: metadata.toolCalls.length
+          ? JSON.stringify(metadata.toolCalls)
+          : null,
+        streamStatus: metadata.streamStatus,
+        startedAt: metadata.startedAt,
+        completedAt: metadata.completedAt,
+        sequence: (last?.sequence ?? 0) + 1,
+        createdAt: metadata.completedAt,
+      },
+    });
+  }
+
+  private captureToolEvent(
+    toolCalls: MessageToolCall[],
+    event: CoreStreamEvent,
+  ) {
+    if (event.type === 'tool-call') {
+      toolCalls.push({
+        id: event.toolCallId,
+        toolName: event.toolName,
+        status: 'in-progress',
+      });
+      return;
+    }
+    if (event.type === 'tool-result') {
+      const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
+      if (toolCall) {
+        toolCall.status = 'completed';
+        toolCall.output = event.output;
+      } else {
+        toolCalls.push({
+          id: event.toolCallId,
+          toolName: event.toolName,
+          status: 'completed',
+          output: event.output,
+        });
+      }
+      return;
+    }
+    if (event.type === 'tool-progress') {
+      const id = event.itemId ?? `${event.toolName}:${toolCalls.length}`;
+      const existing = toolCalls.find((call) => call.id === id);
+      const status =
+        event.status === 'failed'
+          ? 'failed'
+          : event.status === 'completed'
+            ? 'completed'
+            : 'in-progress';
+      if (existing) {
+        existing.status = status;
+      } else {
+        toolCalls.push({ id, toolName: event.toolName, status, output: event.data });
+      }
+    }
   }
 
   private makeTitle(content: string): string {
@@ -236,7 +346,48 @@ export class SessionsService {
     content: string;
     sequence: number;
     createdAt: bigint;
+    reasoning: string | null;
+    toolCalls: string | null;
+    streamStatus: string | null;
+    startedAt: bigint | null;
+    completedAt: bigint | null;
   }): MessageSummary {
-    return { ...message, createdAt: message.createdAt.toString() };
+    return {
+      id: message.id,
+      sessionId: message.sessionId,
+      turnId: message.turnId,
+      role: message.role,
+      content: message.content,
+      sequence: message.sequence,
+      createdAt: message.createdAt.toString(),
+      ...(message.reasoning ? { reasoning: message.reasoning } : {}),
+      ...(message.toolCalls
+        ? { toolCalls: this.parseToolCalls(message.toolCalls) }
+        : {}),
+      ...(this.isStreamStatus(message.streamStatus)
+        ? { streamStatus: message.streamStatus }
+        : {}),
+      ...(message.startedAt
+        ? { startedAt: message.startedAt.toString() }
+        : {}),
+      ...(message.completedAt
+        ? { completedAt: message.completedAt.toString() }
+        : {}),
+    };
+  }
+
+  private parseToolCalls(value: string): MessageToolCall[] {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as MessageToolCall[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private isStreamStatus(value: string | null): value is MessageStreamStatus {
+    return ['thinking', 'streaming', 'completed', 'failed', 'stopped'].includes(
+      value ?? '',
+    );
   }
 }
