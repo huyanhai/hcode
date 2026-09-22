@@ -65,6 +65,8 @@ export type MessageToolCall = {
   id: string;
   toolName: string;
   status: 'in-progress' | 'completed' | 'failed';
+  input?: unknown;
+  rawArguments?: string;
   output?: unknown;
 };
 

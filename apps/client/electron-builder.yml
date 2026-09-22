@@ -7,8 +7,8 @@ files:
   - dist/**/*
   - package.json
 extraResources:
-  - from: ../agent-server/dist/index.cjs
-    to: agent-server/dist/index.cjs
+  - from: ../server/dist/main.js
+    to: server/main.js
 artifactName: '${productName}-${version}-${os}-${arch}.${ext}'
 mac:
   category: public.app-category.developer-tools

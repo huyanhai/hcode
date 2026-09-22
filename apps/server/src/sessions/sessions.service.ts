@@ -280,7 +280,22 @@ export class SessionsService {
         id: event.toolCallId,
         toolName: event.toolName,
         status: 'in-progress',
+        input: event.input,
+        rawArguments: event.rawArguments,
       });
+      return;
+    }
+    if (event.type === 'tool-call-delta') {
+      const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
+      if (toolCall) {
+        const rawArguments = event.arguments ?? `${toolCall.rawArguments ?? ''}${event.delta}`;
+        toolCall.rawArguments = rawArguments;
+        try {
+          toolCall.input = JSON.parse(rawArguments || '{}');
+        } catch {
+          // The arguments may still be incomplete while the model is streaming.
+        }
+      }
       return;
     }
     if (event.type === 'tool-result') {

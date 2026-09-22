@@ -7,7 +7,7 @@ export function startServer() {
 
   if (app.isPackaged) {
     // 生产环境：从 resources/server 下启动
-    serverPath = path.join(process.resourcesPath, "server", "index.js");
+    serverPath = path.join(process.resourcesPath, "server", "main.js");
   } else {
     // 开发环境：指向本地源码目录
     serverPath = path.join(__dirname, "../../server/dist/main.js");

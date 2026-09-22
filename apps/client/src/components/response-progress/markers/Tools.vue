@@ -1,7 +1,7 @@
 <template>
   <Marker>
     <MarkerIcon>
-      <Search />
+      <slot name="icon"/>
     </MarkerIcon>
     <MarkerContent>
       <slot />

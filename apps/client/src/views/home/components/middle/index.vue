@@ -285,8 +285,29 @@ function updateStreamMessage(
                 id: event.toolCallId,
                 toolName: event.toolName,
                 status: "in-progress",
+                input: event.input,
+                rawArguments: event.rawArguments,
               },
             ],
+          };
+        }
+        if (event.type === "tool-call-delta") {
+          const rawArguments =
+            event.arguments ??
+            `${message.toolCalls?.find((call) => call.id === event.toolCallId)?.rawArguments ?? ""}${event.delta}`;
+          let input: unknown;
+          try {
+            input = JSON.parse(rawArguments || "{}");
+          } catch {
+            input = undefined;
+          }
+          return {
+            ...next,
+            toolCalls: (message.toolCalls ?? []).map((toolCall) =>
+              toolCall.id === event.toolCallId
+                ? { ...toolCall, rawArguments, ...(input === undefined ? {} : { input }) }
+                : toolCall,
+            ),
           };
         }
         if (event.type === "tool-result") {

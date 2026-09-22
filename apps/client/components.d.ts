@@ -118,7 +118,6 @@ declare module 'vue' {
     MessageScrollerItem: typeof import('./src/components/ui/message-scroller/MessageScrollerItem.vue')['default']
     MessageScrollerProvider: typeof import('./src/components/ui/message-scroller/MessageScrollerProvider.vue')['default']
     MessageScrollerViewport: typeof import('./src/components/ui/message-scroller/MessageScrollerViewport.vue')['default']
-    PageDialog: typeof import('./src/components/page-dialog/index.vue')['default']
     Primitive: typeof import('reka-ui')['Primitive']
     ResizableHandle: typeof import('./src/components/ui/resizable/ResizableHandle.vue')['default']
     ResizablePanelGroup: typeof import('./src/components/ui/resizable/ResizablePanelGroup.vue')['default']
@@ -137,5 +136,7 @@ declare module 'vue' {
     TableHeader: typeof import('./src/components/ui/table/TableHeader.vue')['default']
     TableRow: typeof import('./src/components/ui/table/TableRow.vue')['default']
     Textarea: typeof import('./src/components/ui/textarea/Textarea.vue')['default']
+    Thinking: typeof import('./src/components/response-progress/markers/Thinking.vue')['default']
+    Tools: typeof import('./src/components/response-progress/markers/Tools.vue')['default']
   }
 }
