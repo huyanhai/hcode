@@ -22,11 +22,8 @@
           </template>
         </ActionsButton>
         <template v-if="showProject">
-          <p
-            v-if="!workspaces.length"
-            class="px-2 text-xs text-muted-foreground"
-          >
-            暂无工作区
+          <p v-if="!workspaces.length" class="p-2 text-sm opacity-30">
+            暂无项目
           </p>
           <FoldMenus
             v-else
@@ -37,7 +34,7 @@
           >
             <p
               v-if="!sessionsByWorkspace[item.id]?.length"
-              class="px-8 py-1 text-xs text-muted-foreground"
+              class="p-2 text-sm opacity-30"
             >
               暂无会话
             </p>
@@ -59,62 +56,60 @@
       </div>
     </div>
     <Settings class="border-t p-2" />
-    <Dialog v-model:open="workspaceDialogOpen">
-      <DialogContent>
-        <form @submit.prevent="createSelectedWorkspace">
-          <DialogHeader><DialogTitle>创建工作区</DialogTitle></DialogHeader>
-          <div class="mt-4 space-y-3">
-            <Field
-              ><FieldLabel>工作区名称</FieldLabel
-              ><FieldContent
-                ><Input
-                  v-model="workspaceDraft.name"
-                  placeholder="例如：我的项目" /></FieldContent
-            ></Field>
-            <Field
-              ><FieldLabel>工作区目录</FieldLabel
-              ><FieldContent class="flex gap-2"
-                ><Input
-                  v-model="workspaceDraft.path"
-                  readonly
-                  placeholder="选择本地目录"
-                /><Button
-                  type="button"
-                  variant="outline"
-                  @click="selectWorkspaceDirectory"
-                  >选择目录</Button
-                ></FieldContent
-              ></Field
-            >
-          </div>
-          <DialogFooter class="mt-6"
-            ><Button
-              type="button"
-              variant="outline"
-              @click="workspaceDialogOpen = false"
-              >取消</Button
-            ><Button type="submit">创建工作区</Button></DialogFooter
-          >
-        </form>
-      </DialogContent>
-    </Dialog>
   </div>
+  <GlobalDialog
+    title="创建项目"
+    v-model:open="workspaceDialogOpen"
+    @submit="createSelectedWorkspace"
+  >
+    <Field>
+      <FieldLabel>项目名称</FieldLabel>
+      <FieldContent>
+        <Input v-model="workspaceDraft.name" placeholder="项目名称" />
+      </FieldContent>
+    </Field>
+    <Field>
+      <FieldLabel>文件夹</FieldLabel>
+      <FieldContent>
+        <ButtonGroup orientation="vertical" class="w-full">
+          <Button
+            v-if="workspaceDraft.path"
+            class="justify-between"
+            variant="outline"
+          >
+            <span>{{ workspaceDraft.path }}</span>
+            <button class="button-hover">
+              <X :size="ICON_SIZE" />
+            </button>
+          </Button>
+          <Button
+            class="justify-start"
+            variant="outline"
+            @click="selectWorkspaceDirectory"
+          >
+            <FolderPlus />
+            添加文件夹
+          </Button>
+        </ButtonGroup>
+      </FieldContent>
+    </Field>
+  </GlobalDialog>
 </template>
 
 <script lang="ts" setup>
 import { SquarePen } from "@respeak/lucide-motion-vue";
-import { ChevronDown, ChevronUp, Plus, Archive } from "@lucide/vue";
+import {
+  ChevronDown,
+  ChevronUp,
+  Plus,
+  Archive,
+  X,
+  FolderPlus,
+} from "@lucide/vue";
 import Button from "@/components/ui/button/Button.vue";
 import Settings from "./settings/index.vue";
 import FoldMenus from "./fold-menus/index.vue";
 import Input from "@/components/ui/input/Input.vue";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Field, FieldContent, FieldLabel } from "@/components/ui/field";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import {

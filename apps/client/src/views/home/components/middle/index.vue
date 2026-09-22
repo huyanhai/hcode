@@ -6,21 +6,45 @@
         default-scroll-position="last-anchor"
       >
         <MessageScroller>
-          <MessageScrollerViewport>
+          <MessageScrollerViewport class="no-scrollbar">
             <MessageScrollerContent>
               <MessageScrollerItem
                 v-for="message in messages"
                 :key="message.id"
                 :message-id="message.id"
-                :scroll-anchor="message.role === 'user' || message.id === messages.at(-1)?.id"
+                :scroll-anchor="
+                  message.role === 'user' || message.id === messages.at(-1)?.id
+                "
               >
-                <Message :align="message.role === 'user' ? 'end' : 'start'">
-                  {{ message.content }}
-                </Message>
+                <div v-if="message.role === 'user'" class="flex justify-end">
+                  <Bubble variant="muted" align="end">
+                    <BubbleContent>
+                      <Markdown :content="message.content" />
+                    </BubbleContent>
+                  </Bubble>
+                </div>
+                <template v-else>
+                  <Thinking v-if="message.reasoning">
+                    {{ message.reasoning }}
+                  </Thinking>
+                  <template v-if="message.toolCalls?.length">
+                    <Tools v-for="tool in message.toolCalls" :key="tool">
+                      {{ tool }}
+                    </Tools>
+                  </template>
+                  <Markdown :content="message.content" />
+                </template>
               </MessageScrollerItem>
             </MessageScrollerContent>
           </MessageScrollerViewport>
-          <MessageScrollerButton direction="end" />
+          <MessageScrollerButton
+            class="rounded-full border glass-bg"
+            direction="end"
+          >
+            <Ellipsis
+              class="w-6! h-6! dot-bounce [&>circle:nth-child(2)]:[animation-delay:0.2s] [&>circle:nth-child(3)]:[animation-delay:0.4s]"
+            />
+          </MessageScrollerButton>
         </MessageScroller>
       </MessageScrollerProvider>
     </div>
@@ -50,12 +74,6 @@
         </div>
       </div>
     </div> -->
-    <div
-      v-if="sessionQuery.isError"
-      class="px-2 text-sm text-destructive"
-    >
-      无法加载当前会话
-    </div>
     <Input
       v-model="data"
       :models="modelOptions"
@@ -74,7 +92,6 @@
   </div>
 </template>
 <script lang="ts" setup>
-import Message from "./Message.vue";
 import Input, { type SubmitPayload } from "./input/index.vue";
 import Button from "@/components/ui/button/Button.vue";
 import { useQuery, useQueryClient } from "@tanstack/vue-query";
@@ -83,11 +100,16 @@ import {
   listProfileModels,
   openSession,
   streamSessionMessage,
+  type SessionStreamEvent,
   type SessionDetail,
   type ModelProfileSummary,
 } from "@/lib/model-profiles-api";
 import { toast } from "vue-sonner";
 import { useSessionSelection } from "@/stores/session-selection";
+import Thinking from "./markers/Thinking.vue";
+import Tools from "./markers/Tools.vue";
+import Markdown from "./markdown/index.vue";
+import { Ellipsis } from "@lucide/vue";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -97,9 +119,23 @@ const data = reactive<SubmitPayload>({
   fullAccess: false,
 });
 
+const sending = ref(false);
+
+//#region Props
+//#endregion
+//#region Emits
+//#endregion
+//#region Computed
+const messages = computed(() => sessionQuery.data.value?.messages ?? []);
+const defaultProfile = computed<ModelProfileSummary | undefined>(() => {
+  const profiles = profilesQuery.data.value ?? [];
+  return profiles.find((profile) => profile.isDefault) ?? profiles[0];
+});
+//#endregion
+//#region Hooks
 const selectedSessionId = useSessionSelection();
 const queryClient = useQueryClient();
-const sending = ref(false);
+
 const sessionQuery = useQuery<SessionDetail>({
   queryKey: computed(() => ["session", selectedSessionId.value]),
   queryFn: () => openSession(selectedSessionId.value),
@@ -107,20 +143,16 @@ const sessionQuery = useQuery<SessionDetail>({
   retry: false,
 });
 
-
-const messages = computed(() => sessionQuery.data.value?.messages ?? []);
 const profilesQuery = useQuery({
   queryKey: ["model-profiles"],
   queryFn: listModelProfiles,
 });
-const defaultProfile = computed<ModelProfileSummary | undefined>(() => {
-  const profiles = profilesQuery.data.value ?? [];
-  return profiles.find((profile) => profile.isDefault) ?? profiles[0];
-});
+
 const modelsQuery = useQuery({
   queryKey: computed(() => ["provider-models", defaultProfile.value?.id ?? ""]),
   queryFn: () => listProfileModels(defaultProfile.value!.id),
   enabled: computed(() => Boolean(defaultProfile.value?.id)),
+  retry: false,
 });
 const modelOptions = computed(() => {
   const configuredModel = defaultProfile.value?.model;
@@ -130,22 +162,21 @@ const modelOptions = computed(() => {
     ? remoteModels
     : [configuredModel, ...remoteModels];
 });
-
-watch(defaultProfile, (profile) => {
-  if (profile && !data.model) data.model = profile.model;
-}, { immediate: true });
-watch(sessionQuery.isError, (isError) => {
-  if (isError && selectedSessionId.value) selectedSessionId.value = "";
-});
-//#region Props
-//#endregion
-//#region Emits
-//#endregion
-//#region Hooks
-//#endregion
-//#region Computed
 //#endregion
 //#region Watch
+watch(
+  defaultProfile,
+  (profile) => {
+    if (profile && !data.model) data.model = profile.model;
+  },
+  { immediate: true },
+);
+watch(sessionQuery.isError, (isError) => {
+  if (isError && selectedSessionId.value) {
+    selectedSessionId.value = "";
+    toast.error("无法加载当前会话");
+  }
+});
 //#endregion
 //#region Event
 //#endregion
@@ -174,6 +205,8 @@ async function submit() {
     turnId: null,
     role: "assistant" as const,
     content: "",
+    reasoning: "",
+    toolCalls: [] as string[],
     sequence: userMessage.sequence + 1,
     createdAt: String(Date.now()),
   };
@@ -183,23 +216,54 @@ async function submit() {
       : old,
   );
   try {
-    await streamSessionMessage(sessionId, {
-      content,
-      profileId: defaultProfile.value?.id,
-      model: data.model || undefined,
-    }, (text) => {
-      queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          messages: old.messages.map((message) =>
-            message.id === assistantMessageId
-              ? { ...message, content: `${message.content}${text}` }
-              : message,
-          ),
-        };
-      });
-    });
+    await streamSessionMessage(
+      sessionId,
+      {
+        content,
+        profileId: defaultProfile.value?.id,
+        model: data.model || undefined,
+        fullAccess: data.fullAccess,
+      },
+      (event: SessionStreamEvent) => {
+        queryClient.setQueryData<SessionDetail>(
+          ["session", sessionId],
+          (old) => {
+            if (!old) return old;
+            return {
+              ...old,
+              messages: old.messages.map((message) =>
+                message.id === assistantMessageId
+                  ? event.type === "text"
+                    ? { ...message, content: `${message.content}${event.text}` }
+                    : event.type === "reasoning"
+                      ? {
+                          ...message,
+                          reasoning: `${message.reasoning ?? ""}${event.text}`,
+                        }
+                      : event.type === "tool-call"
+                        ? {
+                            ...message,
+                            toolCalls: [
+                              ...(message.toolCalls ?? []),
+                              `调用 ${event.toolName}`,
+                            ],
+                          }
+                        : event.type === "tool-result"
+                          ? {
+                              ...message,
+                              toolCalls: [
+                                ...(message.toolCalls ?? []),
+                                `${event.toolName} 完成`,
+                              ],
+                            }
+                          : message
+                  : message,
+              ),
+            };
+          },
+        );
+      },
+    );
     const detail = await openSession(sessionId);
     queryClient.setQueryData(["session", sessionId], detail);
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
@@ -231,3 +295,23 @@ async function submit() {
 //#region Expose
 //#endregion
 </script>
+
+<style>
+@keyframes dot-bounce {
+  0% {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(2px);
+  }
+  50% {
+    transform: translateY(0px);
+  }
+  75% {
+    transform: translateY(-2px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+</style>

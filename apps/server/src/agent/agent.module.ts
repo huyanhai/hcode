@@ -9,7 +9,12 @@ import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionFilter } from '../common/api-exception.filter';
 
 @Module({
-  imports: [DatabaseModule, ModelProfilesModule, WorkspacesModule, SessionsModule],
+  imports: [
+    DatabaseModule,
+    ModelProfilesModule,
+    WorkspacesModule,
+    SessionsModule,
+  ],
   controllers: [AgentController],
   providers: [
     AgentService,

@@ -24,8 +24,7 @@
     "test:e2e": "pnpm prisma:generate && jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.127",
-    "ai": "^6.0.0",
+    "@hcode/agent-core": "workspace:*",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",
     "@nestjs/platform-express": "^10.0.0",

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { successResponse, type ApiResponse } from '../common/api-response';
@@ -15,13 +23,17 @@ export class SessionsController {
   constructor(private readonly service: SessionsService) {}
 
   @Get()
-  async list(@Query('workspaceId') workspaceId?: string): Promise<ApiResponse<SessionSummary[]>> {
+  async list(
+    @Query('workspaceId') workspaceId?: string,
+  ): Promise<ApiResponse<SessionSummary[]>> {
     return successResponse(await this.service.list(workspaceId));
   }
 
   @Post('create')
   @HttpCode(200)
-  async create(@Body() body: CreateSessionDto): Promise<ApiResponse<SessionSummary>> {
+  async create(
+    @Body() body: CreateSessionDto,
+  ): Promise<ApiResponse<SessionSummary>> {
     return successResponse(await this.service.create(body));
   }
 

@@ -7,8 +7,14 @@ import { WorkspacesService } from './workspaces.service';
 export class WorkspacesController {
   constructor(private readonly service: WorkspacesService) {}
   @Get()
-  async list(): Promise<ApiResponse<WorkspaceSummary[]>> { return successResponse(await this.service.list()); }
+  async list(): Promise<ApiResponse<WorkspaceSummary[]>> {
+    return successResponse(await this.service.list());
+  }
   @Post('create')
   @HttpCode(200)
-  async create(@Body() body: CreateWorkspaceDto): Promise<ApiResponse<WorkspaceSummary>> { return successResponse(await this.service.create(body)); }
+  async create(
+    @Body() body: CreateWorkspaceDto,
+  ): Promise<ApiResponse<WorkspaceSummary>> {
+    return successResponse(await this.service.create(body));
+  }
 }

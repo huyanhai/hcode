@@ -4,10 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, streamText } from 'ai';
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
+import { streamAgent, type CoreStreamEvent } from '@hcode/agent-core';
 import { PrismaService } from '../database/prisma.service';
 import type {
   CreateSessionDto,
@@ -35,7 +34,6 @@ export class SessionsService {
       where: { id: input.workspaceId },
     });
     if (!workspace) throw new NotFoundException('工作区不存在');
-
     const title = input.title?.trim() || '新会话';
     if (title === '新会话') {
       const emptySession = await this.prisma.session.findFirst({
@@ -43,11 +41,9 @@ export class SessionsService {
         orderBy: { createdAt: 'desc' },
         include: { _count: { select: { messages: true } } },
       });
-      if (emptySession?._count.messages === 0) {
+      if (emptySession?._count.messages === 0)
         return this.toSummary(emptySession);
-      }
     }
-
     const timestamp = BigInt(Date.now());
     const session = await this.prisma.session.create({
       data: {
@@ -64,7 +60,6 @@ export class SessionsService {
   async open(id: string): Promise<SessionDetail> {
     const session = await this.prisma.session.findUnique({ where: { id } });
     if (!session) throw new NotFoundException('会话不存在');
-
     const messages = await this.prisma.message.findMany({
       where: { sessionId: id },
       orderBy: { sequence: 'asc' },
@@ -76,66 +71,59 @@ export class SessionsService {
   }
 
   async send(id: string, input: SendMessageDto): Promise<SessionDetail> {
-    const session = await this.prisma.session.findUnique({ where: { id } });
-    if (!session) throw new NotFoundException('会话不存在');
-
-    const profile = input.profileId
-      ? await this.prisma.modelProfile.findUnique({ where: { id: input.profileId } })
-      : await this.prisma.modelProfile.findFirst({
-          orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }],
-        });
-    if (!profile) throw new BadRequestException('请先配置模型');
-
-    const content = input.content.trim();
-    const history = await this.prisma.message.findMany({
-      where: { sessionId: id },
-      orderBy: { sequence: 'asc' },
-    });
-    await this.appendMessage(id, 'user', content);
-    const model = input.model?.trim() || profile.model;
-    const title = session.title === '新会话' ? this.makeTitle(content) : session.title;
-    await this.prisma.session.update({
-      where: { id },
-      data: { title, updatedAt: BigInt(Date.now()) },
-    });
-
-    let assistantContent: string;
-    try {
-      const provider = createOpenAI({
-        apiKey: profile.apiKey,
-        baseURL: normalizeProviderBaseUrl(profile.baseUrl),
-      });
-      const result = await generateText({
-        model: provider.responses(model),
-        messages: [
-          ...history
-            .filter((message) => ['system', 'user', 'assistant'].includes(message.role))
-            .map((message) => ({ role: message.role, content: message.content })),
-          { role: 'user', content },
-        ] as never,
-      });
-      assistantContent = result.text.trim();
-    } catch (error) {
-      console.error('AI request failed', error instanceof Error ? error.message : error);
-      throw new BadGatewayException('请求模型失败');
-    }
-    if (!assistantContent) throw new BadGatewayException('模型没有返回内容');
-
-    await this.appendMessage(id, 'assistant', assistantContent);
-    const updatedAt = BigInt(Date.now());
-    await this.prisma.session.update({
-      where: { id },
-      data: { title, updatedAt },
-    });
+    const result = await this.run(id, input, undefined);
+    if (!result.text.trim()) throw new BadGatewayException('模型没有返回内容');
     return this.open(id);
   }
 
-  async stream(id: string, input: SendMessageDto, response: ServerResponse): Promise<void> {
-    const session = await this.prisma.session.findUnique({ where: { id } });
-    if (!session) throw new NotFoundException('会话不存在');
+  async stream(
+    id: string,
+    input: SendMessageDto,
+    response: ServerResponse,
+  ): Promise<void> {
+    try {
+      response.statusCode = 200;
+      response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      response.setHeader('Cache-Control', 'no-cache, no-transform');
+      response.setHeader('Connection', 'keep-alive');
+      const result = await this.run(id, input, (event) => {
+        response.write(`data: ${JSON.stringify(event)}\n\n`);
+      });
+      response.write(
+        `data: ${JSON.stringify({ type: 'done', text: result.text })}\n\n`,
+      );
+      response.end();
+    } catch (error) {
+      console.error('AI stream failed', error);
+      if (!response.headersSent) {
+        response.statusCode = 502;
+        response.setHeader('Content-Type', 'application/json; charset=utf-8');
+        response.end(
+          JSON.stringify({ code: '-1', data: null, message: '请求模型失败' }),
+        );
+      } else {
+        response.write(
+          `data: ${JSON.stringify({ type: 'error', message: '请求模型失败' })}\n\n`,
+        );
+        response.end();
+      }
+    }
+  }
 
+  private async run(
+    id: string,
+    input: SendMessageDto,
+    onEvent?: (event: CoreStreamEvent) => void,
+  ): Promise<{ text: string }> {
+    const session = await this.prisma.session.findUnique({
+      where: { id },
+      include: { workspace: true },
+    });
+    if (!session) throw new NotFoundException('会话不存在');
     const profile = input.profileId
-      ? await this.prisma.modelProfile.findUnique({ where: { id: input.profileId } })
+      ? await this.prisma.modelProfile.findUnique({
+          where: { id: input.profileId },
+        })
       : await this.prisma.modelProfile.findFirst({
           orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }],
         });
@@ -147,72 +135,53 @@ export class SessionsService {
       orderBy: { sequence: 'asc' },
     });
     await this.appendMessage(id, 'user', content);
-    const title = session.title === '新会话' ? this.makeTitle(content) : session.title;
+    const title =
+      session.title === '新会话' ? this.makeTitle(content) : session.title;
     await this.prisma.session.update({
       where: { id },
       data: { title, updatedAt: BigInt(Date.now()) },
     });
 
-    const provider = createOpenAI({
-      apiKey: profile.apiKey,
-      baseURL: normalizeProviderBaseUrl(profile.baseUrl),
-    });
-    const result = streamText({
-      // GPT 及当前 Atria 兼容接口使用 Responses API，而不是
-      // /chat/completions。AI SDK 会把 Responses 增量转换成 text-delta，
-      // 再由下面的 textStream 转发给前端。
-      model: provider.responses(input.model?.trim() || profile.model),
-      messages: [
-        ...history
-          .filter((message) => ['system', 'user', 'assistant'].includes(message.role))
-          .map((message) => ({ role: message.role, content: message.content })),
-        { role: 'user', content },
-      ] as never,
-      onError: ({ error }) => {
-        console.error('AI stream failed', error);
+    const agentProfile = {
+      ...profile,
+      model: input.model?.trim() || profile.model,
+      baseUrl: normalizeProviderBaseUrl(profile.baseUrl),
+      createdAt: Number(profile.createdAt),
+      updatedAt: Number(profile.updatedAt),
+    };
+    const messages = [
+      ...history
+        .filter((message) =>
+          ['system', 'user', 'assistant'].includes(message.role),
+        )
+        .map((message) => ({ role: message.role, content: message.content })),
+      { role: 'user', content },
+    ];
+    let text = '';
+    console.log('执行');
+    for await (const event of streamAgent(
+      agentProfile,
+      {
+        workspaceRoot: session.workspace.path,
+        permissionMode: input.fullAccess ? 'full' : 'restricted',
       },
-    });
-
-    let assistantText = '';
-    let responseStarted = false;
-    try {
-      for await (const text of result.textStream) {
-        if (!responseStarted) {
-          response.statusCode = 200;
-          response.setHeader('Content-Type', 'text/plain; charset=utf-8');
-          response.setHeader('Cache-Control', 'no-cache, no-transform');
-          response.setHeader('Connection', 'keep-alive');
-          responseStarted = true;
-        }
-        assistantText += text;
-        response.write(text);
-      }
-
-      // Persist before ending the HTTP response. The client reloads the
-      // session as soon as the stream closes.
-      if (assistantText.trim()) {
-        await this.appendMessage(id, 'assistant', assistantText);
-        await this.prisma.session.update({
-          where: { id },
-          data: { updatedAt: BigInt(Date.now()) },
-        });
-      }
-
-      if (!responseStarted) {
-        response.statusCode = 200;
-        response.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      }
-      response.end();
-    } catch (error) {
-      console.error('AI stream failed', error);
-      if (!responseStarted) {
-        response.statusCode = 502;
-        response.setHeader('Content-Type', 'application/json; charset=utf-8');
-        response.end(JSON.stringify({ code: '-1', data: null, message: '请求模型失败' }));
-      } else {
-        response.end();
-      }
+      messages,
+      {},
+      undefined,
+      Boolean(onEvent),
+    )) {
+      if (event.type === 'text') text += event.text;
+      onEvent?.(event);
+      if (event.type === 'error') throw event.error;
     }
+    if (text.trim()) {
+      await this.appendMessage(id, 'assistant', text);
+      await this.prisma.session.update({
+        where: { id },
+        data: { updatedAt: BigInt(Date.now()) },
+      });
+    }
+    return { text };
   }
 
   private async appendMessage(
@@ -236,14 +205,9 @@ export class SessionsService {
     });
   }
 
-
   private makeTitle(content: string): string {
     const firstLine = content.split(/\r?\n/, 1)[0]?.trim() || '新会话';
     return firstLine.length > 30 ? `${firstLine.slice(0, 30)}…` : firstLine;
-  }
-
-  private isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
   }
 
   private toSummary(session: {
@@ -273,9 +237,6 @@ export class SessionsService {
     sequence: number;
     createdAt: bigint;
   }): MessageSummary {
-    return {
-      ...message,
-      createdAt: message.createdAt.toString(),
-    };
+    return { ...message, createdAt: message.createdAt.toString() };
   }
 }

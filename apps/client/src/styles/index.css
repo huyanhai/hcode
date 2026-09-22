@@ -1,3 +1,5 @@
 @import "./base.css";
 @import "./main.css";
 @import "./reset.css";
+@import "./typeset.css";
+@import "shadcn-vue/tailwind.css";

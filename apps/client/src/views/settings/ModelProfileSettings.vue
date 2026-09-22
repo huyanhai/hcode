@@ -7,47 +7,47 @@
           管理本地 Provider，并从 Base URL 获取可用模型。
         </p>
       </div>
-      <Button
-        class="button-no-shadow"
-        variant="outline"
-        type="button"
-        @click="startNew"
-      >
+      <Button variant="outline" type="button" @click="startNew">
         新增配置
       </Button>
     </header>
 
-    <div>
-      <Item v-for="profile in profiles" :key="profile.id" variant="outline">
-        <ItemContent>
-          <ItemTitle>
-            {{ profile.name }}
-            <Badge v-if="profile.isDefault"> 默认 </Badge>
-          </ItemTitle>
-          <ItemDescription>
-            {{ profile.baseUrl }}
-          </ItemDescription>
-        </ItemContent>
-        <ItemActions>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            @click="editProfile(profile)"
-          >
-            <Bolt />
-          </Button>
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            @click="remove(profile.id)"
-          >
-            <Trash />
-          </Button>
-        </ItemActions>
-      </Item>
-    </div>
+    <ItemGroup class="border rounded">
+      <template v-for="(profile, index) in profiles" :key="profile.id">
+        <div class="h-20">
+          <Item>
+            <ItemContent>
+              <ItemTitle>
+                {{ profile.name }}
+                <Badge v-if="profile.isDefault"> 默认 </Badge>
+              </ItemTitle>
+              <ItemDescription>
+                {{ profile.baseUrl }}
+              </ItemDescription>
+            </ItemContent>
+            <ItemActions>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                @click="editProfile(profile)"
+              >
+                <Bolt />
+              </Button>
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                @click="remove(profile.id)"
+              >
+                <Trash />
+              </Button>
+            </ItemActions>
+          </Item>
+        </div>
+        <ItemSeparator v-if="index !== profiles.length - 1" />
+      </template>
+    </ItemGroup>
   </section>
 
   <GlobalDialog
@@ -73,7 +73,7 @@
         <Input
           v-model="draft.baseUrl"
           type="url"
-          placeholder="https://api.openai.com/v1（Atria 请填写 https://api.atria-asi.ai/v1）"
+          placeholder="https://api.openai.com/v1"
         />
       </FieldContent>
     </Field>

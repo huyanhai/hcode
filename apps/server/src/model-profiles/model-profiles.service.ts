@@ -112,7 +112,9 @@ export class ModelProfilesService {
       throw new NotFoundException({ message: '模型配置不存在' });
     }
 
-    const modelsUrl = `${normalizeProviderBaseUrl(profile.baseUrl)}/models`;
+    const url = normalizeProviderBaseUrl(profile.baseUrl);
+
+    const modelsUrl = `${url.endsWith('v1') ? url : `${url}/v1`}/models`;
     let response: Response;
     try {
       response = await fetch(modelsUrl, {
@@ -150,7 +152,8 @@ export class ModelProfilesService {
       .map((item) => {
         if (typeof item === 'string') return item;
         if (this.isRecord(item) && typeof item.id === 'string') return item.id;
-        if (this.isRecord(item) && typeof item.name === 'string') return item.name;
+        if (this.isRecord(item) && typeof item.name === 'string')
+          return item.name;
         return null;
       })
       .filter((model): model is string => Boolean(model));

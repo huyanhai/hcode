@@ -48,7 +48,97 @@ export type SessionMessageSummary = {
   content: string;
   sequence: number;
   createdAt: string;
+  reasoning?: string;
+  toolCalls?: string[];
 };
+
+export type SessionStreamEvent =
+  | { type: "text"; text: string; itemId?: string; contentIndex?: number }
+  | {
+      type: "reasoning";
+      text: string;
+      itemId?: string;
+      contentIndex?: number;
+    }
+  | {
+      type: "tool-call";
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      itemId?: string;
+      rawArguments?: string;
+    }
+  | {
+      type: "tool-call-delta";
+      toolCallId: string;
+      delta: string;
+      itemId?: string;
+      arguments?: string;
+      done?: boolean;
+    }
+  | {
+      type: "output-item";
+      itemId: string;
+      outputIndex?: number;
+      status: "added" | "done";
+      item: unknown;
+    }
+  | {
+      type: "content-part";
+      itemId: string;
+      contentIndex?: number;
+      outputIndex?: number;
+      status: "added" | "done" | "updated";
+      part: unknown;
+    }
+  | {
+      type: "tool-progress";
+      toolName: string;
+      status: string;
+      itemId?: string;
+      outputIndex?: number;
+      data: unknown;
+    }
+  | {
+      type: "media";
+      kind: "audio" | "audio-transcript" | "image";
+      status: "delta" | "done" | "partial";
+      data?: string;
+      itemId?: string;
+      outputIndex?: number;
+    }
+  | {
+      type: "refusal";
+      text: string;
+      done?: boolean;
+      itemId?: string;
+      contentIndex?: number;
+    }
+  | {
+      type: "response-lifecycle";
+      phase:
+        | "queued"
+        | "created"
+        | "in-progress"
+        | "compacting"
+        | "completed"
+        | "failed"
+        | "incomplete";
+      responseId?: string;
+      response?: unknown;
+      sourceType: string;
+    }
+  | {
+      type: "provider-event";
+      provider: string;
+      sourceType: string;
+      payload: unknown;
+    }
+  | { type: "approval"; approvalId: string; toolCallId: string; toolName: string; input: unknown }
+  | { type: "tool-result"; toolCallId: string; toolName: string; output: unknown }
+  | { type: "finish"; text: string; responseMessages: unknown[]; awaitingApproval: boolean }
+  | { type: "done"; text: string }
+  | { type: "error"; message?: string; provider?: string; sourceType?: string; code?: string };
 
 export type SessionDetail = {
   session: SessionSummary;
@@ -134,7 +224,7 @@ export function openSession(id: string): Promise<SessionDetail> {
 
 export function sendSessionMessage(
   id: string,
-  input: { content: string; profileId?: string; model?: string },
+  input: { content: string; profileId?: string; model?: string; fullAccess?: boolean },
 ): Promise<SessionDetail> {
   return request<SessionDetail>(
     `/api/sessions/${encodeURIComponent(id)}/messages`,
@@ -147,8 +237,8 @@ export function sendSessionMessage(
 
 export async function streamSessionMessage(
   id: string,
-  input: { content: string; profileId?: string; model?: string },
-  onText: (text: string) => void,
+  input: { content: string; profileId?: string; model?: string; fullAccess?: boolean },
+  onEvent: (event: SessionStreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(
     `${API_BASE_URL}/api/sessions/${encodeURIComponent(id)}/messages/stream`,
@@ -172,21 +262,32 @@ export async function streamSessionMessage(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let receivedText = false;
+  let buffer = "";
+  const consume = (chunk: string) => {
+    buffer += chunk;
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const line = frame.split(/\r?\n/).find((item) => item.startsWith("data:"));
+      if (!line) continue;
+      try {
+        const event = JSON.parse(line.slice(5).trim()) as SessionStreamEvent;
+        if (event.type === "text") receivedText = true;
+        onEvent(event);
+      } catch {
+        // Ignore malformed keep-alive frames.
+      }
+    }
+  };
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      const text = decoder.decode(value, { stream: true });
-      if (text) {
-        receivedText = true;
-        onText(text);
-      }
+      consume(decoder.decode(value, { stream: true }));
     }
     const remaining = decoder.decode();
-    if (remaining) {
-      receivedText = true;
-      onText(remaining);
-    }
+    if (remaining) consume(remaining);
+    if (buffer.trim()) consume("\n\n");
     if (!receivedText) throw new Error("模型没有返回内容");
   } finally {
     reader.releaseLock();

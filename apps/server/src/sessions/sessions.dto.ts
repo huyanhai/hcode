@@ -25,6 +25,9 @@ export class SendMessageDto {
   @IsString()
   @IsNotEmpty()
   model?: string;
+
+  @IsOptional()
+  fullAccess?: boolean;
 }
 
 export type SessionSummary = {

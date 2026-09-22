@@ -7,7 +7,10 @@ export function normalizeProviderBaseUrl(baseUrl: string): string {
   const normalized = baseUrl.trim().replace(/\/+$/, '');
   try {
     const url = new URL(normalized);
-    if (url.hostname === 'api.atria-asi.ai' && (url.pathname === '' || url.pathname === '/')) {
+    if (
+      url.hostname === 'api.atria-asi.ai' &&
+      (url.pathname === '' || url.pathname === '/')
+    ) {
       url.pathname = '/v1';
       return url.toString().replace(/\/+$/, '');
     }

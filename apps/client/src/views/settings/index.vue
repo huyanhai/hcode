@@ -1,28 +1,28 @@
 <template>
   <div class="flex h-dvh min-h-0 flex-col bg-background text-foreground">
-    <div class="h-10 shrink-0" style="-webkit-app-region: drag" aria-hidden="true" />
+    <div
+      class="h-10 shrink-0"
+      style="-webkit-app-region: drag"
+      aria-hidden="true"
+    />
     <div class="flex min-h-0 flex-1">
       <aside class="flex w-56 shrink-0 flex-col border-r bg-muted/20">
-        <div class="px-3 pb-5">
-          <Button class="w-full justify-start gap-2" variant="ghost" type="button" @click="goBack">
+        <div class="px-2 pb-5">
+          <Button class="menu-button" variant="ghost" @click="goBack">
             <ArrowLeft :size="16" />
             返回应用
           </Button>
         </div>
-        <nav class="px-3" aria-label="设置菜单">
-          <button
-            type="button"
-            class="flex w-full items-center gap-2 rounded-lg bg-muted px-3 py-2 text-left text-sm font-medium"
-            aria-current="page"
-          >
+        <nav class="px-2" aria-label="设置菜单">
+          <Button class="menu-button" variant="ghost">
             <Settings2 :size="16" />
             模型配置
-          </button>
+          </Button>
         </nav>
       </aside>
       <main class="min-w-0 flex-1 overflow-y-auto">
         <div class="mx-auto w-full max-w-5xl px-8 py-8 lg:px-12">
-        <ModelProfileSettings />
+          <ModelProfileSettings />
         </div>
       </main>
     </div>
@@ -36,5 +36,7 @@ import Button from "@/components/ui/button/Button.vue";
 import ModelProfileSettings from "./ModelProfileSettings.vue";
 
 const router = useRouter();
-function goBack() { void router.push({ name: "home" }); }
+function goBack() {
+  void router.push({ name: "home" });
+}
 </script>

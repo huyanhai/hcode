@@ -7,20 +7,19 @@
       <form @submit.prevent="$emit('submit')">
         <DialogHeader>
           <DialogTitle>{{ title }}</DialogTitle>
-          <div class="mt-2 gap-2 flex flex-col">
+          <div class="my-4 gap-4 flex flex-col">
             <slot />
           </div>
         </DialogHeader>
         <DialogFooter>
-          <Button
-            type="button"
-            class="button-no-shadow"
-            variant="outline"
-            @click="show = false"
-          >
-            取消
+          <DialogClose>
+            <Button type="button" variant="outline">
+              取消
+            </Button>
+          </DialogClose>
+          <Button type="submit">
+            {{ submitButtonText || "保存" }}
           </Button>
-          <Button type="submit">保存</Button>
         </DialogFooter>
       </form>
     </DialogContent>
@@ -29,7 +28,11 @@
 <script lang="ts" setup>
 const show = defineModel({ type: Boolean });
 //#region Props
-const { title } = defineProps<{ title: string; loading?: boolean }>();
+const { title, submitButtonText } = defineProps<{
+  title: string;
+  loading?: boolean;
+  submitButtonText?: string;
+}>();
 //#endregion
 //#region Emits
 defineEmits(["submit"]);

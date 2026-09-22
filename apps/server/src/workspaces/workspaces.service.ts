@@ -31,8 +31,16 @@ export class WorkspacesService {
   }
 
   private toSummary(workspace: {
-    id: string; name: string; path: string; createdAt: bigint; lastOpenedAt: bigint;
+    id: string;
+    name: string;
+    path: string;
+    createdAt: bigint;
+    lastOpenedAt: bigint;
   }): WorkspaceSummary {
-    return { ...workspace, createdAt: workspace.createdAt.toString(), lastOpenedAt: workspace.lastOpenedAt.toString() };
+    return {
+      ...workspace,
+      createdAt: workspace.createdAt.toString(),
+      lastOpenedAt: workspace.lastOpenedAt.toString(),
+    };
   }
 }

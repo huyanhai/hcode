@@ -1,5 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException,
+  INestApplication,
+  ValidationPipe,
+} from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/agent/agent.module';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -145,7 +149,9 @@ describe('AppController (e2e)', () => {
       .expect(400);
 
     expect(response.body.code).toBe('-1');
-    expect(response.body.message).toContain('property unexpected should not exist');
+    expect(response.body.message).toContain(
+      'property unexpected should not exist',
+    );
     expect(response.body.data).toBeNull();
   });
 
@@ -159,7 +165,8 @@ describe('AppController (e2e)', () => {
     });
     await new Promise<void>((resolve) => server.listen(0, resolve));
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('server did not start');
+    if (!address || typeof address === 'string')
+      throw new Error('server did not start');
 
     const created = await request(app.getHttpServer())
       .post('/api/model-profiles/upsert')
@@ -182,13 +189,18 @@ describe('AppController (e2e)', () => {
       data: { models: ['remote-model'] },
       message: '',
     });
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
   });
 
   it('creates and lists sessions for a workspace', async () => {
     const workspace = await request(app.getHttpServer())
       .post('/api/workspaces/create')
-      .send({ name: '会话测试项目', path: join(databaseDirectory, 'session-project') })
+      .send({
+        name: '会话测试项目',
+        path: join(databaseDirectory, 'session-project'),
+      })
       .expect(200);
 
     const created = await request(app.getHttpServer())
@@ -229,28 +241,35 @@ describe('AppController (e2e)', () => {
       expect(incoming.url).toBe('/v1/responses');
       expect(JSON.parse(body).input.at(-1).content.at(-1).text).toBe('hello');
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({
-        id: 'resp_1',
-        created_at: Math.floor(Date.now() / 1000),
-        model: 'test-model',
-        output: [{
-          type: 'message',
-          id: 'msg_1',
-          role: 'assistant',
-          content: [{ type: 'output_text', text: 'hello back', annotations: [] }],
-        }],
-        usage: {
-          input_tokens: 1,
-          output_tokens: 2,
-          input_tokens_details: {},
-          output_tokens_details: {},
-        },
-      }));
+      response.end(
+        JSON.stringify({
+          id: 'resp_1',
+          created_at: Math.floor(Date.now() / 1000),
+          model: 'test-model',
+          output: [
+            {
+              type: 'message',
+              id: 'msg_1',
+              role: 'assistant',
+              content: [
+                { type: 'output_text', text: 'hello back', annotations: [] },
+              ],
+            },
+          ],
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            input_tokens_details: {},
+            output_tokens_details: {},
+          },
+        }),
+      );
     });
     server.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('server did not start');
+    if (!address || typeof address === 'string')
+      throw new Error('server did not start');
 
     try {
       const profile = await request(app.getHttpServer())
@@ -266,7 +285,10 @@ describe('AppController (e2e)', () => {
         .expect(200);
       const workspace = await request(app.getHttpServer())
         .post('/api/workspaces/create')
-        .send({ name: '消息测试项目', path: join(databaseDirectory, 'message-project') })
+        .send({
+          name: '消息测试项目',
+          path: join(databaseDirectory, 'message-project'),
+        })
         .expect(200);
       const session = await request(app.getHttpServer())
         .post('/api/sessions/create')
@@ -287,13 +309,22 @@ describe('AppController (e2e)', () => {
         })
         .expect(200);
 
-      expect(sent.body.data.messages.map((message: { role: string; content: string }) => [message.role, message.content])).toEqual([
+      expect(
+        sent.body.data.messages.map(
+          (message: { role: string; content: string }) => [
+            message.role,
+            message.content,
+          ],
+        ),
+      ).toEqual([
         ['user', 'hello'],
         ['assistant', 'hello back'],
       ]);
       expect(sent.body.data.session.title).toBe('hello');
     } finally {
-      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
     }
   });
 
@@ -303,29 +334,38 @@ describe('AppController (e2e)', () => {
       let body = '';
       for await (const chunk of incoming) body += chunk.toString();
       expect(incoming.url).toBe('/v1/responses');
-      expect(JSON.parse(body).input.at(-1).content.at(-1).text).toBe('stream me');
+      expect(JSON.parse(body).input.at(-1).content.at(-1).text).toBe(
+        'stream me',
+      );
       response.writeHead(200, {
         'cache-control': 'no-cache',
         'content-type': 'text/event-stream',
       });
-      response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'msg_1', delta: 'hello ' })}\n\n`);
-      response.write(`data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'msg_1', delta: 'stream' })}\n\n`);
-      response.end(`data: ${JSON.stringify({
-        type: 'response.completed',
-        response: {
-          usage: {
-            input_tokens: 1,
-            output_tokens: 2,
-            input_tokens_details: {},
-            output_tokens_details: {},
+      response.write(
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'msg_1', delta: 'hello ' })}\n\n`,
+      );
+      response.write(
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'msg_1', delta: 'stream' })}\n\n`,
+      );
+      response.end(
+        `data: ${JSON.stringify({
+          type: 'response.completed',
+          response: {
+            usage: {
+              input_tokens: 1,
+              output_tokens: 2,
+              input_tokens_details: {},
+              output_tokens_details: {},
+            },
           },
-        },
-      })}\n\n`);
+        })}\n\n`,
+      );
     });
     server.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', resolve));
     const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('server did not start');
+    if (!address || typeof address === 'string')
+      throw new Error('server did not start');
 
     try {
       const profile = await request(app.getHttpServer())
@@ -341,7 +381,10 @@ describe('AppController (e2e)', () => {
         .expect(200);
       const workspace = await request(app.getHttpServer())
         .post('/api/workspaces/create')
-        .send({ name: '流式测试项目', path: join(databaseDirectory, 'stream-project') })
+        .send({
+          name: '流式测试项目',
+          path: join(databaseDirectory, 'stream-project'),
+        })
         .expect(200);
       const session = await request(app.getHttpServer())
         .post('/api/sessions/create')
@@ -353,7 +396,10 @@ describe('AppController (e2e)', () => {
         .send({ content: 'stream me', profileId: profile.body.data.id })
         .expect(200);
 
-      expect(streamed.text).toBe('hello stream');
+      expect(streamed.headers['content-type']).toContain('text/event-stream');
+      expect(streamed.text).toContain('"type":"text"');
+      expect(streamed.text).toContain('hello ');
+      expect(streamed.text).toContain('stream');
       const opened = await request(app.getHttpServer())
         .get(`/api/sessions/${session.body.data.id}`)
         .expect(200);
@@ -361,7 +407,9 @@ describe('AppController (e2e)', () => {
         expect.objectContaining({ role: 'assistant', content: 'hello stream' }),
       );
     } finally {
-      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
     }
   });
 });
