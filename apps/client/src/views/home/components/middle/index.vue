@@ -18,7 +18,7 @@
               >
                 <div v-if="message.role === 'user'" class="flex justify-end">
                   <Bubble variant="muted" align="end">
-                    <BubbleContent>
+                    <BubbleContent class="text-base">
                       <Markdown :content="message.content" />
                     </BubbleContent>
                   </Bubble>

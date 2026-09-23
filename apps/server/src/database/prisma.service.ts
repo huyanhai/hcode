@@ -52,11 +52,15 @@ export class PrismaService
       CREATE TABLE IF NOT EXISTS workspaces (
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
+        folders TEXT,
         name TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
         created_at BIGINT NOT NULL,
         last_opened_at BIGINT NOT NULL
       )
     `);
+    await this.migrateWorkspaceStatusColumn();
+    await this.migrateWorkspaceFoldersColumn();
     await this.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
@@ -150,6 +154,34 @@ export class PrismaService
       if (!existing.has(name)) {
         await this.$executeRawUnsafe(`ALTER TABLE messages ADD COLUMN ${name} ${type}`);
       }
+    }
+  }
+
+  private async migrateWorkspaceStatusColumn(): Promise<void> {
+    const columns = await this.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info(workspaces)',
+    );
+    if (!columns.some((column) => column.name === 'status')) {
+      await this.$executeRawUnsafe(
+        "ALTER TABLE workspaces ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+      );
+    }
+  }
+
+  private async migrateWorkspaceFoldersColumn(): Promise<void> {
+    const columns = await this.$queryRawUnsafe<Array<{ name: string }>>(
+      'PRAGMA table_info(workspaces)',
+    );
+    if (!columns.some((column) => column.name === 'folders')) {
+      await this.$executeRawUnsafe('ALTER TABLE workspaces ADD COLUMN folders TEXT');
+    }
+    const rows = await this.$queryRawUnsafe<Array<{ id: string; path: string; folders: string | null }>>(
+      'SELECT id, path, folders FROM workspaces WHERE folders IS NULL OR folders = \'\'',
+    );
+    for (const row of rows) {
+      await this.$executeRaw`
+        UPDATE workspaces SET folders = ${JSON.stringify([row.path])} WHERE id = ${row.id}
+      `;
     }
   }
 }

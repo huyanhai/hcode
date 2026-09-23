@@ -1,6 +1,11 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
 import { successResponse, type ApiResponse } from '../common/api-response';
-import { CreateWorkspaceDto, type WorkspaceSummary } from './workspaces.dto';
+import {
+  CreateWorkspaceDto,
+  DeleteWorkspaceDto,
+  UpdateWorkspaceDto,
+  type WorkspaceSummary,
+} from './workspaces.dto';
 import { WorkspacesService } from './workspaces.service';
 
 @Controller('api/workspaces')
@@ -16,5 +21,27 @@ export class WorkspacesController {
     @Body() body: CreateWorkspaceDto,
   ): Promise<ApiResponse<WorkspaceSummary>> {
     return successResponse(await this.service.create(body));
+  }
+
+  @Post('update')
+  @HttpCode(200)
+  async update(
+    @Body() body: UpdateWorkspaceDto,
+  ): Promise<ApiResponse<WorkspaceSummary>> {
+    return successResponse(await this.service.update(body));
+  }
+
+  @Post('delete')
+  @HttpCode(200)
+  async delete(
+    @Body() body: DeleteWorkspaceDto,
+  ): Promise<ApiResponse<{ id: string }>> {
+    return successResponse(await this.service.delete(body.id));
+  }
+
+  @Post(':id/archive')
+  @HttpCode(200)
+  async archive(@Param('id') id: string): Promise<ApiResponse<WorkspaceSummary>> {
+    return successResponse(await this.service.archive(id));
   }
 }

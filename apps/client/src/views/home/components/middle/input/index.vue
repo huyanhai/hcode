@@ -115,7 +115,7 @@
           :type="sending ? 'button' : 'submit'"
           variant="default"
           size="icon-sm"
-          class="ml-1 button-full"
+          class="ml-1 button-full shrink-0"
           :disabled="sending ? false : !canSubmit || disabled"
           :aria-label="sending ? '停止生成' : '发送消息'"
           @click="sending ? emit('stop') : undefined"

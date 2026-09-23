@@ -38,6 +38,12 @@ export class SessionsController {
     return successResponse(await this.service.create(body));
   }
 
+  @Post(':id/archive')
+  @HttpCode(200)
+  async archive(@Param('id') id: string): Promise<ApiResponse<SessionSummary>> {
+    return successResponse(await this.service.archive(id));
+  }
+
   @Get(':id')
   async open(@Param('id') id: string): Promise<ApiResponse<SessionDetail>> {
     return successResponse(await this.service.open(id));

@@ -46,10 +46,22 @@ export class SessionsService {
 
   async list(workspaceId?: string): Promise<SessionSummary[]> {
     const sessions = await this.prisma.session.findMany({
-      where: workspaceId ? { workspaceId } : undefined,
+      where: { ...(workspaceId ? { workspaceId } : {}), status: 'active' },
       orderBy: { updatedAt: 'desc' },
     });
     return sessions.map((session) => this.toSummary(session));
+  }
+
+  async archive(id: string): Promise<SessionSummary> {
+    const session = await this.prisma.session.findUnique({ where: { id } });
+    if (!session) throw new NotFoundException('会话不存在');
+    if (session.status === 'archived') return this.toSummary(session);
+
+    const archived = await this.prisma.session.update({
+      where: { id },
+      data: { status: 'archived', updatedAt: BigInt(Date.now()) },
+    });
+    return this.toSummary(archived);
   }
 
   async create(input: CreateSessionDto): Promise<SessionSummary> {

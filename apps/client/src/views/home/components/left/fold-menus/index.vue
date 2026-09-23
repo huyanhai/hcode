@@ -5,10 +5,24 @@
       <FolderOpen v-else />
       {{ title }}
       <template #action>
-        <button class="button-hover">
-          <Ellipsis :size="ICON_SIZE" />
-        </button>
-        <button @click.stop="createSession" class="button-hover">
+        <DropdownMenu>
+          <DropdownMenuTrigger as-child>
+            <button class="button-hover" type="button" @click.stop>
+              <Ellipsis :size="ICON_SIZE" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem @select="archiveWorkspace">
+              <Archive :size="ICON_SIZE" />
+              归档
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" @select="deleteWorkspace">
+              <Trash2 :size="ICON_SIZE" />
+              删除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button @click.stop="editWorkspace" class="button-hover" type="button">
           <SquarePen :size="ICON_SIZE" />
         </button>
       </template>
@@ -19,15 +33,39 @@
   </div>
 </template>
 <script lang="ts" setup>
-import { SquarePen, Ellipsis, Folder, FolderOpen } from "@lucide/vue";
+import {
+  Archive,
+  Ellipsis,
+  Folder,
+  FolderOpen,
+  SquarePen,
+  Trash2,
+} from "@lucide/vue";
 import { ICON_SIZE } from "@/constants";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const open = ref(true);
-const emit = defineEmits<{ "create-session": [] }>();
+const emit = defineEmits<{
+  "edit-workspace": [];
+  "archive-workspace": [];
+  "delete-workspace": [];
+}>();
 
-function createSession() {
-  open.value = true;
-  emit("create-session");
+function editWorkspace() {
+  emit("edit-workspace");
+}
+
+function archiveWorkspace() {
+  emit("archive-workspace");
+}
+
+function deleteWorkspace() {
+  emit("delete-workspace");
 }
 //#region Props
 defineProps<{ title: string }>();

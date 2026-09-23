@@ -49,7 +49,6 @@ declare module 'vue' {
     DialogScrollContent: typeof import('./src/components/ui/dialog/DialogScrollContent.vue')['default']
     DialogTitle: typeof import('./src/components/ui/dialog/DialogTitle.vue')['default']
     DialogTrigger: typeof import('./src/components/ui/dialog/DialogTrigger.vue')['default']
-    Diff: typeof import('./src/components/diff-render/index.vue')['default']
     DiffRender: typeof import('./src/components/diff-render/index.vue')['default']
     DropdownMenu: typeof import('./src/components/ui/dropdown-menu/DropdownMenu.vue')['default']
     DropdownMenuCheckboxItem: typeof import('./src/components/ui/dropdown-menu/DropdownMenuCheckboxItem.vue')['default']

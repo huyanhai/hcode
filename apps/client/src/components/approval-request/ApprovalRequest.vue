@@ -8,7 +8,7 @@
     <div
       class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
     >
-      {{ input.command }}
+      {{ commandText }}
     </div>
     <div class="mt-3 flex gap-2">
       <Button size="sm" :disabled="busy" @click="emit('respond', true)">
@@ -27,14 +27,27 @@
 </template>
 
 <script lang="ts" setup>
+import { computed } from "vue";
 import { ShieldAlert } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 
-defineProps<{
+const props = defineProps<{
   toolName: string;
   input: unknown;
   busy?: boolean;
 }>();
+
+const commandText = computed(() => {
+  const input = props.input;
+  if (!input || typeof input !== "object") return "";
+  if (!("command" in input)) return "";
+
+  const command = input.command;
+  if (typeof command === "string") return command;
+  if (command === undefined) return "";
+
+  return JSON.stringify(command, null, 2);
+});
 
 const emit = defineEmits<{
   respond: [approved: boolean];

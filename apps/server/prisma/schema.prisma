@@ -24,7 +24,9 @@ model ModelProfile {
 model Workspace {
   id           String @id
   path         String @unique
+  folders      String?
   name         String
+  status       String @default("active")
   createdAt    BigInt @map("created_at")
   lastOpenedAt BigInt @map("last_opened_at")
 

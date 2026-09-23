@@ -32,8 +32,15 @@ export type WorkspaceSummary = {
   id: string;
   name: string;
   path: string;
+  folders: WorkspaceFolder[];
+  status: string;
   createdAt: string;
   lastOpenedAt: string;
+};
+
+export type WorkspaceFolder = {
+  path: string;
+  isPrimary: boolean;
 };
 
 export type SessionSummary = {
@@ -207,11 +214,36 @@ export function listWorkspaces(): Promise<WorkspaceSummary[]> {
   return request<WorkspaceSummary[]>("/api/workspaces");
 }
 
-export function createWorkspace(input: { name: string; path: string }): Promise<WorkspaceSummary> {
+export function createWorkspace(input: { name: string; folders: string[] }): Promise<WorkspaceSummary> {
   return request<WorkspaceSummary>("/api/workspaces/create", {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function updateWorkspace(input: {
+  id: string;
+  name: string;
+  folders: string[];
+}): Promise<WorkspaceSummary> {
+  return request<WorkspaceSummary>("/api/workspaces/update", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteWorkspace(id: string): Promise<{ id: string }> {
+  return request<{ id: string }>("/api/workspaces/delete", {
+    method: "POST",
+    body: JSON.stringify({ id }),
+  });
+}
+
+export function archiveWorkspace(id: string): Promise<WorkspaceSummary> {
+  return request<WorkspaceSummary>(
+    `/api/workspaces/${encodeURIComponent(id)}/archive`,
+    { method: "POST" },
+  );
 }
 
 export function listSessions(workspaceId?: string): Promise<SessionSummary[]> {
@@ -224,6 +256,13 @@ export function createSession(input: { workspaceId: string; title?: string }): P
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function archiveSession(id: string): Promise<SessionSummary> {
+  return request<SessionSummary>(
+    `/api/sessions/${encodeURIComponent(id)}/archive`,
+    { method: "POST" },
+  );
 }
 
 export function openSession(id: string): Promise<SessionDetail> {

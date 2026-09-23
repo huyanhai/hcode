@@ -231,6 +231,56 @@ describe('AppController (e2e)', () => {
     expect(listed.body.data).toEqual([
       expect.objectContaining({ id: created.body.data.id, title: '新会话' }),
     ]);
+
+    const archived = await request(app.getHttpServer())
+      .post(`/api/sessions/${created.body.data.id}/archive`)
+      .expect(200);
+    expect(archived.body.data).toEqual(
+      expect.objectContaining({ id: created.body.data.id, status: 'archived' }),
+    );
+
+    const listedAfterArchive = await request(app.getHttpServer())
+      .get(`/api/sessions?workspaceId=${workspace.body.data.id}`)
+      .expect(200);
+    expect(listedAfterArchive.body.data).toEqual([]);
+  });
+
+  it('edits, archives and deletes workspaces', async () => {
+    const path = join(databaseDirectory, 'workspace-actions');
+    const created = await request(app.getHttpServer())
+      .post('/api/workspaces/create')
+      .send({ name: '原项目名', path })
+      .expect(200);
+    expect(created.body.data.status).toBe('active');
+
+    const edited = await request(app.getHttpServer())
+      .post('/api/workspaces/update')
+      .send({ id: created.body.data.id, name: '新项目名', path })
+      .expect(200);
+    expect(edited.body.data.name).toBe('新项目名');
+
+    const archived = await request(app.getHttpServer())
+      .post(`/api/workspaces/${created.body.data.id}/archive`)
+      .expect(200);
+    expect(archived.body.data.status).toBe('archived');
+
+    const listedAfterArchive = await request(app.getHttpServer())
+      .get('/api/workspaces')
+      .expect(200);
+    expect(
+      listedAfterArchive.body.data.some(
+        (workspace: { id: string }) => workspace.id === created.body.data.id,
+      ),
+    ).toBe(false);
+
+    await request(app.getHttpServer())
+      .post('/api/workspaces/delete')
+      .send({ id: created.body.data.id })
+      .expect(200);
+    await request(app.getHttpServer())
+      .post('/api/workspaces/delete')
+      .send({ id: created.body.data.id })
+      .expect(404);
   });
 
   it('opens a session and persists user and assistant messages', async () => {
