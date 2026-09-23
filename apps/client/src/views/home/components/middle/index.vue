@@ -32,6 +32,14 @@
                     :reasoning="message.reasoning"
                     :tool-calls="message.toolCalls"
                   />
+                  <ApprovalRequest
+                    v-for="approval in pendingApprovals(message)"
+                    :key="approval.approvalId"
+                    :tool-name="approval.toolName"
+                    :input="approval.input"
+                    :busy="respondingApprovalId === approval.approvalId"
+                    @respond="respondToApproval(message.id, approval.approvalId, $event)"
+                  />
                   <Markdown :content="message.content" />
                 </template>
               </MessageScrollerItem>
@@ -47,24 +55,6 @@
         </MessageScroller>
       </MessageScrollerProvider>
     </div>
-    <!-- <div class="space-y-2 px-2">
-      <div
-        v-for="approval in approvals"
-        :key="approval.approvalId"
-        class="border-l-2 border-amber-500 bg-muted/40 px-3 py-2"
-      >
-        <div class="text-sm font-medium">请求执行 {{ approval.toolName }}</div>
-        <pre
-          class="mt-1 max-h-28 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground"
-        >
-          {{ JSON.stringify(approval.input, null, 2) }}
-        </pre>
-        <div class="mt-2 flex gap-2">
-          <Button size="sm"> 允许 </Button>
-          <Button size="sm" variant="outline"> 拒绝 </Button>
-        </div>
-      </div>
-    </div> -->
     <Input
       v-model="data"
       :models="modelOptions"
@@ -82,6 +72,7 @@ import {
   listModelProfiles,
   listProfileModels,
   openSession,
+  streamApprovalResponse,
   streamSessionMessage,
   type SessionStreamEvent,
   type SessionDetail,
@@ -89,13 +80,14 @@ import {
 } from "@/lib/model-profiles-api";
 import { toast } from "vue-sonner";
 import { useSessionSelection } from "@/stores/session-selection";
-import Markdown from "./markdown/index.vue";
+import Markdown from "../../../../components/markdown/index.vue";
 import { Ellipsis, MoveDown } from "@lucide/vue";
 import {
   ResponseProgress,
   type ResponseStreamStatus,
   type ResponseToolCall,
 } from "@/components/response-progress";
+import { ApprovalRequest } from "@/components/approval-request";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -107,6 +99,7 @@ const data = reactive<SubmitPayload>({
 
 const sending = ref(false);
 let abortController: AbortController | undefined;
+const respondingApprovalId = ref<string>();
 
 //#region Props
 //#endregion
@@ -251,8 +244,8 @@ function updateStreamMessage(
         if (event.type === "done") {
           return {
             ...message,
-            streamStatus: "completed",
-            completedAt: String(Date.now()),
+            streamStatus: event.awaitingApproval ? "awaiting-approval" : "completed",
+            ...(event.awaitingApproval ? {} : { completedAt: String(Date.now()) }),
           };
         }
         if (event.type === "error") {
@@ -291,6 +284,18 @@ function updateStreamMessage(
             ],
           };
         }
+        if (event.type === "approval") {
+          return {
+            ...next,
+            toolCalls: updateToolApproval(
+              message.toolCalls ?? [],
+              event.toolCallId,
+              event.toolName,
+              event.input,
+              event.approvalId,
+            ),
+          };
+        }
         if (event.type === "tool-call-delta") {
           const rawArguments =
             event.arguments ??
@@ -317,7 +322,7 @@ function updateStreamMessage(
               message.toolCalls ?? [],
               event.toolCallId,
               event.toolName,
-              "completed",
+              isToolResultFailure(event.output) ? "failed" : "completed",
               event.output,
             ),
           };
@@ -361,6 +366,35 @@ function updateToolCall(
   );
 }
 
+function updateToolApproval(
+  toolCalls: ResponseToolCall[],
+  id: string,
+  toolName: string,
+  input: unknown,
+  approvalId: string,
+): ResponseToolCall[] {
+  const approval = { id: approvalId, status: "pending" as const };
+  const existing = toolCalls.find((toolCall) => toolCall.id === id);
+  if (!existing) {
+    return [
+      ...toolCalls,
+      { id, toolName, status: "in-progress", input, approval },
+    ];
+  }
+  return toolCalls.map((toolCall) =>
+    toolCall.id === id ? { ...toolCall, input, approval } : toolCall,
+  );
+}
+
+function isToolResultFailure(output: unknown): boolean {
+  return (
+    typeof output === "object" &&
+    output !== null &&
+    "error" in output &&
+    typeof output.error === "string"
+  );
+}
+
 function updateMessageStatus(
   sessionId: string,
   messageId: string,
@@ -378,6 +412,76 @@ function updateMessageStatus(
         }
       : old,
   );
+}
+
+function pendingApprovals(message: SessionDetail["messages"][number]) {
+  return (message.toolCalls ?? []).flatMap((toolCall) =>
+    toolCall.approval?.status === "pending"
+      ? [
+          {
+            approvalId: toolCall.approval.id,
+            toolName: toolCall.toolName,
+            input: toolCall.input,
+          },
+        ]
+      : [],
+  );
+}
+
+async function respondToApproval(
+  messageId: string,
+  approvalId: string,
+  approved: boolean,
+) {
+  const sessionId = selectedSessionId.value;
+  if (!sessionId || respondingApprovalId.value) return;
+  respondingApprovalId.value = approvalId;
+  sending.value = true;
+  queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
+    old
+      ? {
+          ...old,
+          messages: old.messages.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  streamStatus: "streaming",
+                  toolCalls: (message.toolCalls ?? []).map((toolCall) =>
+                    toolCall.approval?.id === approvalId
+                      ? {
+                          ...toolCall,
+                          approval: {
+                            ...toolCall.approval,
+                            status: approved ? "approved" : "denied",
+                          },
+                        }
+                      : toolCall,
+                  ),
+                }
+              : message,
+          ),
+        }
+      : old,
+  );
+  try {
+    abortController = new AbortController();
+    await streamApprovalResponse(
+      sessionId,
+      approvalId,
+      approved,
+      (event) => updateStreamMessage(sessionId, messageId, event),
+      abortController.signal,
+    );
+    queryClient.setQueryData(["session", sessionId], await openSession(sessionId));
+    await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+  } catch (error) {
+    updateMessageStatus(sessionId, messageId, "failed");
+    toast.error(error instanceof Error ? error.message : "处理审批失败");
+  } finally {
+    abortController = undefined;
+    respondingApprovalId.value = undefined;
+    sending.value = false;
+  }
 }
 
 function stopTurn() {

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateSessionDto {
   @IsString()
@@ -30,6 +30,11 @@ export class SendMessageDto {
   fullAccess?: boolean;
 }
 
+export class RespondApprovalDto {
+  @IsBoolean()
+  approved!: boolean;
+}
+
 export type SessionSummary = {
   id: string;
   workspaceId: string;
@@ -47,7 +52,6 @@ export type MessageSummary = {
   content: string;
   sequence: number;
   createdAt: string;
-  reasoning?: string;
   toolCalls?: MessageToolCall[];
   streamStatus?: MessageStreamStatus;
   startedAt?: string;
@@ -57,6 +61,7 @@ export type MessageSummary = {
 export type MessageStreamStatus =
   | 'thinking'
   | 'streaming'
+  | 'awaiting-approval'
   | 'completed'
   | 'failed'
   | 'stopped';
@@ -68,6 +73,11 @@ export type MessageToolCall = {
   input?: unknown;
   rawArguments?: string;
   output?: unknown;
+  contentOffset?: number;
+  approval?: {
+    id: string;
+    status: 'pending' | 'approved' | 'denied';
+  };
 };
 
 export type SessionDetail = {

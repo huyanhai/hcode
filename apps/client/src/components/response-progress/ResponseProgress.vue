@@ -1,129 +1,94 @@
 <template>
   <div class="max-w-full text-sm text-muted-foreground">
     <Thinking v-if="status === 'thinking'">正在思考</Thinking>
-    <div v-else class="group/details">
-      <div>{{ summary }}</div>
-      <Separator class="my-4" />
-      <!-- <Tools>summary{{  }}</Tools> -->
-      <!-- <summary
-        class="flex h-8 cursor-pointer list-none items-center gap-2 rounded-md px-1 text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden"
-      >
+    <div v-else>
+      <div class="flex gap-2 items-center group/item">
+        <span>{{ summary }}</span>
         <ChevronRight
-          class="size-4 shrink-0 transition-transform group-open/details:rotate-90"
+          class="size-4 shrink-0 invisible group-hover/item:visible"
           aria-hidden="true"
         />
-        <SquareTerminal
-          v-if="commandToolCalls.length"
-          class="size-4 shrink-0"
-          aria-hidden="true"
-        />
-        <span>{{ commandToolCalls.length ? "运行了命令" : summary }}</span>
-      </summary> -->
-      <div v-if="hasDetails" class="ml-2 mt-1 space-y-3 pb-2 pt-1">
+      </div>
+      <Separator class="my-2" />
+      <div v-if="hasDetails">
         <p
           v-if="reasoning"
           class="whitespace-pre-wrap leading-6 text-foreground/80"
         >
-          {{ reasoning }}
+          <Markdown :content="reasoning" />
         </p>
-        <ol v-if="commandToolCalls.length" class="space-y-1">
-          <li
-            v-for="toolCall in commandToolCalls"
-            :key="toolCall.id"
-            class="rounded-md"
-          >
-            <details class="group/command">
-              <summary
-                class="flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-foreground/90 outline-none hover:bg-accent/50 [&::-webkit-details-marker]:hidden"
-                :title="commandFor(toolCall)"
-              >
+        <div v-if="toolCalls.length" class="space-y-1">
+          <div v-for="toolCall in toolCalls" :key="toolCall.id">
+            <Tools class="group/tool">
+              <template #icon>
+                <component :is="TOOLS_NAME_ICON_MAPS[toolCall.toolName]" />
+              </template>
+              <div class="flex items-center gap-2">
+                <p :class="pendingStyle(toolCall)">
+                  {{ toolSummary(toolCall) }}
+                </p>
                 <ChevronRight
-                  class="size-3.5 shrink-0 transition-transform group-open/command:rotate-90"
-                  aria-hidden="true"
+                  class="size-4 shrink-0 transition-transform invisible group-hover/tool:visible"
                 />
-                <SquareTerminal class="size-3.5 shrink-0" aria-hidden="true" />
-                <span class="shimmer">
-                  已运行 {{ commandFor(toolCall) || "命令" }}
-                </span>
-                <span class="ml-auto shrink-0 text-xs text-muted-foreground">{{
-                  toolStatusLabel(toolCall.status)
-                }}</span>
-              </summary>
-              <div class="ml-7 space-y-2 border-border/60 pb-2 pt-1">
+              </div>
+            </Tools>
+            <div class="typeset typeset-docs">
+              <pre class="max-h-50 overflow-auto text-left max-h-50 items-start overflow-x-auto whitespace-pre-wrap">
+                {{
+                  toolCall.toolName === "execCommand"
+                    ? commandOutput(toolCall.output)
+                    : formatValue(toolCall.output)
+                }}
+              </pre>
+            </div>
+            <!-- <div>
+              <div
+                v-if="
+                  toolCall.toolName === 'execCommand' && commandFor(toolCall)
+                "
+              >
+                <div class="mb-1 text-xs font-medium text-muted-foreground">
+                  执行命令
+                </div>
                 <pre
-                  v-if="toolCall.output !== undefined"
-                  class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
-                >
-                  {{ commandOutput(toolCall.output) }}
-                </pre>
+                  class="overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
+                  >{{ commandFor(toolCall) }}</pre>
               </div>
-            </details>
-          </li>
-        </ol>
-        <ol v-if="otherToolCalls.length" class="space-y-2">
-          <li
-            v-for="toolCall in otherToolCalls"
-            :key="toolCall.id"
-            class="rounded-md border border-border/60 bg-muted/20"
-          >
-            <details class="group/tool">
-              <summary
-                class="flex cursor-pointer list-none items-center gap-2 px-2 py-1.5 text-foreground/90 outline-none hover:bg-accent/50 [&::-webkit-details-marker]:hidden"
+              <div v-else-if="inputFor(toolCall) !== undefined">
+                <div class="mb-1 text-xs font-medium text-muted-foreground">
+                  操作参数
+                </div>
+                <pre
+                  class="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
+                  >{{ formatValue(inputFor(toolCall)) }}</pre>
+              </div>
+              <div v-if="toolCall.output !== undefined">
+                <div class="mb-1 text-xs font-medium text-muted-foreground">
+                  {{
+                    toolCall.toolName === "execCommand"
+                      ? "命令输出"
+                      : "操作结果"
+                  }}
+                </div>
+                
+              </div>
+              <div
+                v-if="
+                  toolCall.output === undefined &&
+                  toolCall.status === 'in-progress'
+                "
+                class="text-xs text-muted-foreground"
               >
-                <ChevronRight
-                  class="size-3.5 shrink-0 transition-transform group-open/tool:rotate-90"
-                  aria-hidden="true"
-                />
-                <Wrench class="size-3.5 shrink-0" aria-hidden="true" />
-                <span class="font-medium">{{ toolCall.toolName }}</span>
-                <span class="text-xs text-muted-foreground">{{
-                  toolStatusLabel(toolCall.status)
-                }}</span>
-              </summary>
-              <div class="space-y-2 border-t border-border/60 px-2 pb-2 pt-2">
-                <div
-                  v-if="
-                    toolCall.toolName === 'execCommand' && commandFor(toolCall)
-                  "
-                >
-                  <div class="mb-1 text-xs font-medium text-muted-foreground">
-                    执行命令
-                  </div>
-                  <pre
-                    class="overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
-                    >{{ commandFor(toolCall) }}</pre>
-                </div>
-                <div v-else-if="toolCall.input !== undefined">
-                  <div class="mb-1 text-xs font-medium text-muted-foreground">
-                    参数
-                  </div>
-                  <pre
-                    class="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
-                    >{{ formatValue(toolCall.input) }}</pre>
-                </div>
-                <div v-if="toolCall.output !== undefined">
-                  <div class="mb-1 text-xs font-medium text-muted-foreground">
-                    输出结果
-                  </div>
-                  <pre
-                    class="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
-                    >{{ formatValue(toolCall.output) }}</pre>
-                </div>
-                <div
-                  v-if="
-                    toolCall.output === undefined &&
-                    toolCall.status === 'in-progress'
-                  "
-                  class="text-xs text-muted-foreground"
-                >
-                  正在等待工具结果…
-                </div>
+                正在等待工具结果…
               </div>
-            </details>
-          </li>
-        </ol>
+            </div> -->
+          </div>
+        </div>
       </div>
-      <p v-else class="shimmer">
+      <p
+        v-else
+        class="ml-2 mt-1 border-l pb-2 pl-4 pt-1 text-xs text-muted-foreground"
+      >
         {{ status === "streaming" ? "正在接收响应" : "没有可展开的过程记录" }}
       </p>
     </div>
@@ -131,10 +96,14 @@
 </template>
 
 <script lang="ts" setup>
-import { ChevronRight, SquareTerminal, Wrench } from "@lucide/vue";
-import type { ResponseStreamStatus, ResponseToolCall } from "./types";
+import { ChevronRight, SquareTerminal, File } from "@lucide/vue";
+import {
+  ToolsName,
+  type ResponseStreamStatus,
+  type ResponseToolCall,
+} from "./types";
 import Thinking from "./markers/Thinking.vue";
-import Tools from "./markers/Tools.vue";
+import { TOOLS_NAME_ICON_MAPS } from "./constants";
 
 const props = withDefaults(
   defineProps<{
@@ -158,11 +127,9 @@ let timer: ReturnType<typeof setInterval> | undefined;
 const hasDetails = computed(
   () => Boolean(props.reasoning?.trim()) || props.toolCalls.length > 0,
 );
+
 const commandToolCalls = computed(() =>
   props.toolCalls.filter((toolCall) => toolCall.toolName === "execCommand"),
-);
-const otherToolCalls = computed(() =>
-  props.toolCalls.filter((toolCall) => toolCall.toolName !== "execCommand"),
 );
 const summary = computed(() => {
   const elapsed = formatElapsed(elapsedMilliseconds());
@@ -193,6 +160,10 @@ onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
 });
 
+function pendingStyle(toolCall: ResponseToolCall) {
+  return toolCall.status === "in-progress" ? "shimmer" : "";
+}
+
 function elapsedMilliseconds(): number {
   const startedAt = Number(props.startedAt ?? 0);
   if (!Number.isFinite(startedAt) || startedAt <= 0) return 0;
@@ -214,27 +185,46 @@ function toolStatusLabel(status: ResponseToolCall["status"]): string {
 }
 
 function commandFor(toolCall: ResponseToolCall): string {
-  if (
-    toolCall.input &&
-    typeof toolCall.input === "object" &&
-    "command" in toolCall.input
-  ) {
-    return String((toolCall.input as { command?: unknown }).command ?? "");
-  }
+  const input = inputFor(toolCall);
+  return input && typeof input === "object" && "command" in input
+    ? String((input as { command?: unknown }).command ?? "")
+    : "";
+}
+
+function inputFor(toolCall: ResponseToolCall): unknown {
+  if (toolCall.input !== undefined) return toolCall.input;
   try {
-    const parsed = JSON.parse(toolCall.rawArguments ?? "{}");
-    return parsed && typeof parsed === "object"
-      ? String(parsed.command ?? "")
-      : "";
+    return JSON.parse(toolCall.rawArguments ?? "{}");
   } catch {
-    return "";
+    return undefined;
   }
+}
+
+function toolSummary(toolCall: ResponseToolCall): string {
+  const input = inputFor(toolCall) as Record<string, unknown> | undefined;
+  const path = typeof input?.path === "string" ? input.path : "";
+  if (toolCall.toolName === ToolsName.EXEC_COMMAND)
+    return `已运行 ${commandFor(toolCall) || "命令"}`;
+  if (toolCall.toolName === ToolsName.LIST_FILE)
+    return `列出 ${path || "工作区"} 的文件`;
+  if (toolCall.toolName === ToolsName.READ_FILE)
+    return `读取 ${path || "文件"}`;
+  if (toolCall.toolName === ToolsName.SEARCH_FILES)
+    return `搜索 ${typeof input?.query === "string" ? `“${input.query}”` : "文件"}`;
+  if (toolCall.toolName === ToolsName.WRITE_FILE)
+    return `写入 ${path || "文件"}`;
+  if (toolCall.toolName === ToolsName.APPLY_PATCH)
+    return `应用 ${path || "文件"} 的补丁`;
+  if (toolCall.toolName === ToolsName.GIT_STATUS) return "查看 Git 状态";
+  if (toolCall.toolName === ToolsName.GIT_DIFF) return "查看 Git 变更";
+  if (toolCall.toolName === ToolsName.GIT_LOG) return "查看 Git 提交记录";
+  return toolCall.toolName;
 }
 
 function formatValue(value: unknown): string {
   if (typeof value === "string") return value;
   try {
-    return JSON.stringify(value, null, 2) ?? String(value);
+    return JSON.stringify(value, null, 2).trimStart() ?? String(value);
   } catch {
     return String(value);
   }

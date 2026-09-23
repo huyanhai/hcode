@@ -145,7 +145,7 @@ export type SessionStreamEvent =
   | { type: "approval"; approvalId: string; toolCallId: string; toolName: string; input: unknown }
   | { type: "tool-result"; toolCallId: string; toolName: string; output: unknown }
   | { type: "finish"; text: string; responseMessages: unknown[]; awaitingApproval: boolean }
-  | { type: "done"; text: string }
+  | { type: "done"; text: string; awaitingApproval?: boolean }
   | { type: "error"; message?: string; provider?: string; sourceType?: string; code?: string };
 
 export type SessionDetail = {
@@ -249,7 +249,7 @@ export async function streamSessionMessage(
   onEvent: (event: SessionStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(
+  return streamSessionEvents(
     `${API_BASE_URL}/api/sessions/${encodeURIComponent(id)}/messages/stream`,
     {
       method: "POST",
@@ -257,7 +257,35 @@ export async function streamSessionMessage(
       body: JSON.stringify(input),
       signal,
     },
+    onEvent,
   );
+}
+
+export async function streamApprovalResponse(
+  id: string,
+  approvalId: string,
+  approved: boolean,
+  onEvent: (event: SessionStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSessionEvents(
+    `${API_BASE_URL}/api/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ approved }),
+      signal,
+    },
+    onEvent,
+  );
+}
+
+async function streamSessionEvents(
+  url: string,
+  init: RequestInit,
+  onEvent: (event: SessionStreamEvent) => void,
+): Promise<void> {
+  const response = await fetch(url, init);
   if (!response.ok || !response.body) {
     let message = "发送消息失败";
     try {
@@ -271,7 +299,6 @@ export async function streamSessionMessage(
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let receivedText = false;
   let buffer = "";
   const consume = (chunk: string) => {
     buffer += chunk;
@@ -281,9 +308,7 @@ export async function streamSessionMessage(
       const line = frame.split(/\r?\n/).find((item) => item.startsWith("data:"));
       if (!line) continue;
       try {
-        const event = JSON.parse(line.slice(5).trim()) as SessionStreamEvent;
-        if (event.type === "text") receivedText = true;
-        onEvent(event);
+        onEvent(JSON.parse(line.slice(5).trim()) as SessionStreamEvent);
       } catch {
         // Ignore malformed keep-alive frames.
       }
@@ -298,7 +323,6 @@ export async function streamSessionMessage(
     const remaining = decoder.decode();
     if (remaining) consume(remaining);
     if (buffer.trim()) consume("\n\n");
-    if (!receivedText) throw new Error("模型没有返回内容");
   } finally {
     reader.releaseLock();
   }

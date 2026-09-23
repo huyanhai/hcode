@@ -9,7 +9,6 @@
   </Marker>
 </template>
 <script lang="ts" setup>
-import { Search } from "@lucide/vue";
 //#region Props
 //#endregion
 //#region Emits

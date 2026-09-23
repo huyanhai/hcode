@@ -1,7 +1,18 @@
 import OpenAI from "openai";
 import type { Response, ResponseStreamEvent } from "openai/resources/responses/responses";
-import { OpenAIResponseStreamAdapter, type CoreStreamEvent } from "./openai-stream-adapter";
-export type { CoreStreamEvent, StreamAdapter, StreamState } from "./openai-stream-adapter";
+import {
+  OpenAIResponseStreamAdapter,
+  type AgentContinuation,
+  type CoreStreamEvent,
+  type PendingToolCall,
+} from "./openai-stream-adapter";
+export type {
+  AgentContinuation,
+  CoreStreamEvent,
+  PendingToolCall,
+  StreamAdapter,
+  StreamState,
+} from "./openai-stream-adapter";
 import {
   executeWorkspaceCommand,
   applyWorkspacePatch,
@@ -28,12 +39,7 @@ type ToolDefinition = {
   execute: (input: Record<string, unknown>) => unknown | Promise<unknown>;
 };
 
-type FunctionCall = {
-  callId: string;
-  itemId: string;
-  name: string;
-  arguments: string;
-};
+type FunctionCall = PendingToolCall;
 
 const instructions =
   "You are a local coding agent. Work only inside the provided workspace. " +
@@ -162,7 +168,6 @@ function responseText(response: Response): string {
 }
 
 export function createAgent(profile: ModelProfile, context: AgentContext) {
-  console.log(profile.apiKey,profile.baseUrl)
   const client = new OpenAI({ apiKey: profile.apiKey, baseURL: profile.baseUrl });
   const tools = createTools(context);
   return { client, tools };
@@ -175,75 +180,80 @@ export async function* streamAgent(
   approvals: ApprovalDecisions = {},
   abortSignal?: AbortSignal,
   streamOutput = true,
+  continuation?: AgentContinuation,
 ): AsyncGenerator<CoreStreamEvent> {
   const { client, tools } = createAgent(profile, context);
-  let conversation = inputMessages(messages);
-  let finalText = "";
-  let awaitingApproval = false;
+  let conversation = continuation?.conversation ?? inputMessages(messages);
+  let finalText = continuation?.finalText ?? "";
+  let pendingToolCalls = continuation?.pendingToolCalls ?? [];
+  let pendingOutputs = continuation?.toolOutputs ?? [];
 
   try {
     for (let step = 0; step < 20; step += 1) {
-      const request = {
-        model: profile.model,
-        instructions,
-        input: conversation as never,
-        tools: openaiTools(tools) as never,
-        reasoning: { summary: "auto" },
-        stream: streamOutput,
-      };
-      const result = await client.responses.create(request as never, { signal: abortSignal });
-      let response: Response | undefined;
-      const stepCalls: FunctionCall[] = [];
-      const calls = new Map<string, FunctionCall>();
+      let stepCalls = pendingToolCalls;
+      if (!stepCalls.length) {
+        const request = {
+          model: profile.model,
+          instructions,
+          input: conversation as never,
+          tools: openaiTools(tools) as never,
+          reasoning: { summary: "auto" },
+          stream: streamOutput,
+        };
+        const result = await client.responses.create(request as never, { signal: abortSignal });
+        let response: Response | undefined;
+        const calls = new Map<string, FunctionCall>();
 
-      if (!streamOutput) {
-        response = result as Response;
-        const outputText = responseText(response);
-        if (outputText) {
-          finalText += outputText;
-          yield { type: "text", text: outputText };
-        }
-        for (const item of responseItems(response)) {
-          const call = itemCall(item);
-          if (call) stepCalls.push(call);
-        }
-      }
-      const adapter = new OpenAIResponseStreamAdapter();
-      for await (const providerEvent of (streamOutput ? result : []) as unknown as AsyncIterable<ResponseStreamEvent>) {
-        for (const event of adapter.adapt(providerEvent)) {
-          if (event.type === "text") {
-            finalText += event.text;
-          } else if (event.type === "tool-call") {
-            const call: FunctionCall = {
-              callId: event.toolCallId,
-              itemId: event.itemId ?? event.toolCallId,
-              name: event.toolName,
-              arguments: event.rawArguments ?? "",
-            };
-            calls.set(call.itemId, call);
-            calls.set(call.callId, call);
-            stepCalls.push(call);
-          } else if (event.type === "tool-call-delta") {
-            const call = calls.get(event.itemId ?? "") ?? calls.get(event.toolCallId);
-            if (call) {
-              call.arguments = event.arguments ?? `${call.arguments}${event.delta}`;
-            }
-          } else if (event.type === "response-lifecycle" && event.phase === "completed" && event.response) {
-            response = event.response as Response;
+        if (!streamOutput) {
+          response = result as Response;
+          const outputText = responseText(response);
+          if (outputText) {
+            finalText += outputText;
+            yield { type: "text", text: outputText };
           }
-          yield event;
+          for (const item of responseItems(response)) {
+            const call = itemCall(item);
+            if (call) stepCalls.push(call);
+          }
         }
+        const adapter = new OpenAIResponseStreamAdapter();
+        for await (const providerEvent of (streamOutput ? result : []) as unknown as AsyncIterable<ResponseStreamEvent>) {
+          for (const event of adapter.adapt(providerEvent)) {
+            if (event.type === "text") {
+              finalText += event.text;
+            } else if (event.type === "tool-call") {
+              const call: FunctionCall = {
+                callId: event.toolCallId,
+                itemId: event.itemId ?? event.toolCallId,
+                name: event.toolName,
+                arguments: event.rawArguments ?? "",
+              };
+              calls.set(call.itemId, call);
+              calls.set(call.callId, call);
+              stepCalls.push(call);
+            } else if (event.type === "tool-call-delta") {
+              const call = calls.get(event.itemId ?? "") ?? calls.get(event.toolCallId);
+              if (call) call.arguments = event.arguments ?? `${call.arguments}${event.delta}`;
+            } else if (event.type === "response-lifecycle" && event.phase === "completed" && event.response) {
+              response = event.response as Response;
+            }
+            yield event;
+          }
+        }
+
+        if (!response) break;
+        if (!stepCalls.length) {
+          stepCalls = responseItems(response)
+            .map(itemCall)
+            .filter((call): call is FunctionCall => Boolean(call));
+        }
+        if (!stepCalls.length) break;
+        conversation = [...conversation, ...responseItems(response)];
       }
 
-      if (!response) break;
-      const completedCalls = stepCalls.length
-        ? stepCalls
-        : responseItems(response).map(itemCall).filter((call): call is FunctionCall => Boolean(call));
-      if (!completedCalls.length) break;
-
-      conversation = [...conversation, ...responseItems(response)];
-      const outputs: unknown[] = [];
-      for (const call of completedCalls) {
+      const outputs = [...pendingOutputs];
+      const nextPendingToolCalls: FunctionCall[] = [];
+      for (const call of stepCalls) {
         const definition = tools[call.name];
         let input: Record<string, unknown>;
         try {
@@ -261,10 +271,18 @@ export async function* streamAgent(
           continue;
         }
         const approvalId = `${call.callId}:approval`;
-        if (definition.requiresApproval && !approvals[approvalId]) {
-          awaitingApproval = true;
-          yield { type: "approval", approvalId, toolCallId: call.callId, toolName: call.name, input };
-          continue;
+        if (definition.requiresApproval) {
+          if (!Object.prototype.hasOwnProperty.call(approvals, approvalId)) {
+            nextPendingToolCalls.push(call);
+            yield { type: "approval", approvalId, toolCallId: call.callId, toolName: call.name, input };
+            continue;
+          }
+          if (!approvals[approvalId]) {
+            const output = { error: "Tool execution was denied by the user" };
+            outputs.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+            yield { type: "tool-result", toolCallId: call.callId, toolName: call.name, output };
+            continue;
+          }
         }
         try {
           const output = await definition.execute(input);
@@ -276,11 +294,28 @@ export async function* streamAgent(
           yield { type: "tool-result", toolCallId: call.callId, toolName: call.name, output };
         }
       }
-      if (awaitingApproval || !outputs.length) break;
+      if (nextPendingToolCalls.length) {
+        yield {
+          type: "finish",
+          text: finalText,
+          responseMessages: conversation,
+          awaitingApproval: true,
+          continuation: {
+            conversation,
+            finalText,
+            pendingToolCalls: nextPendingToolCalls,
+            toolOutputs: outputs,
+          },
+        };
+        return;
+      }
+      if (!outputs.length) break;
       conversation = [...conversation, ...outputs];
+      pendingToolCalls = [];
+      pendingOutputs = [];
     }
 
-    yield { type: "finish", text: finalText, responseMessages: conversation, awaitingApproval };
+    yield { type: "finish", text: finalText, responseMessages: conversation, awaitingApproval: false };
   } catch (error) {
     yield { type: "error", error: error instanceof Error ? error : new Error(String(error)) };
   }

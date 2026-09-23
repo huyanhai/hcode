@@ -13,6 +13,7 @@ import { successResponse, type ApiResponse } from '../common/api-response';
 import { SessionsService } from './sessions.service';
 import {
   CreateSessionDto,
+  RespondApprovalDto,
   SendMessageDto,
   type SessionDetail,
   type SessionSummary,
@@ -58,5 +59,15 @@ export class SessionsController {
     @Res() response: Response,
   ): Promise<void> {
     await this.service.stream(id, body, response);
+  }
+
+  @Post(':id/approvals/:approvalId/stream')
+  async respondApproval(
+    @Param('id') id: string,
+    @Param('approvalId') approvalId: string,
+    @Body() body: RespondApprovalDto,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.service.streamApproval(id, approvalId, body.approved, response);
   }
 }

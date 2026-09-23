@@ -6,7 +6,14 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
-import { streamAgent, type CoreStreamEvent } from '@hcode/agent-core';
+import {
+  streamAgent,
+  type AgentContext,
+  type AgentContinuation,
+  type ApprovalDecisions,
+  type CoreStreamEvent,
+  type ModelProfile,
+} from '@hcode/agent-core';
 import { PrismaService } from '../database/prisma.service';
 import type {
   CreateSessionDto,
@@ -19,8 +26,22 @@ import type {
 } from './sessions.dto';
 import { normalizeProviderBaseUrl } from '../model-profiles/base-url';
 
+type PendingApprovalRun = {
+  sessionId: string;
+  messageId: string;
+  profile: ModelProfile;
+  context: AgentContext;
+  continuation: AgentContinuation;
+  approvals: ApprovalDecisions;
+  text: string;
+  toolCalls: MessageToolCall[];
+  startedAt: bigint;
+};
+
 @Injectable()
 export class SessionsService {
+  private readonly pendingApprovals = new Map<string, PendingApprovalRun>();
+
   constructor(private readonly prisma: PrismaService) {}
 
   async list(workspaceId?: string): Promise<SessionSummary[]> {
@@ -74,7 +95,8 @@ export class SessionsService {
 
   async send(id: string, input: SendMessageDto): Promise<SessionDetail> {
     const result = await this.run(id, input, undefined);
-    if (!result.text.trim()) throw new BadGatewayException('模型没有返回内容');
+    if (!result.text.trim() && !result.awaitingApproval)
+      throw new BadGatewayException('模型没有返回内容');
     return this.open(id);
   }
 
@@ -96,7 +118,11 @@ export class SessionsService {
       }, abortController.signal);
       if (!response.destroyed) {
         response.write(
-          `data: ${JSON.stringify({ type: 'done', text: result.text })}\n\n`,
+          `data: ${JSON.stringify({
+            type: 'done',
+            text: result.text,
+            awaitingApproval: result.awaitingApproval,
+          })}\n\n`,
         );
         response.end();
       }
@@ -120,12 +146,65 @@ export class SessionsService {
     }
   }
 
+  async streamApproval(
+    id: string,
+    approvalId: string,
+    approved: boolean,
+    response: ServerResponse,
+  ): Promise<void> {
+    const pending = this.pendingApprovals.get(approvalId);
+    if (!pending || pending.sessionId !== id)
+      throw new NotFoundException('审批请求不存在或已失效');
+    const toolCall = pending.toolCalls.find(
+      (call) => call.approval?.id === approvalId,
+    );
+    if (!toolCall || toolCall.approval?.status !== 'pending')
+      throw new BadRequestException('审批请求已处理');
+
+    pending.approvals[approvalId] = approved;
+    toolCall.approval.status = approved ? 'approved' : 'denied';
+    const abortController = new AbortController();
+    const abort = () => abortController.abort();
+    response.once('close', abort);
+    try {
+      response.statusCode = 200;
+      response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      response.setHeader('Cache-Control', 'no-cache, no-transform');
+      response.setHeader('Connection', 'keep-alive');
+      const result = await this.resumePendingApproval(
+        pending,
+        (event) => response.write(`data: ${JSON.stringify(event)}\n\n`),
+        abortController.signal,
+      );
+      if (!response.destroyed) {
+        response.write(
+          `data: ${JSON.stringify({
+            type: 'done',
+            text: result.text,
+            awaitingApproval: result.awaitingApproval,
+          })}\n\n`,
+        );
+        response.end();
+      }
+    } catch (error) {
+      console.error('Approval stream failed', error);
+      if (!response.destroyed) {
+        response.write(
+          `data: ${JSON.stringify({ type: 'error', message: '处理审批失败' })}\n\n`,
+        );
+        response.end();
+      }
+    } finally {
+      response.off('close', abort);
+    }
+  }
+
   private async run(
     id: string,
     input: SendMessageDto,
     onEvent?: (event: CoreStreamEvent) => void,
     abortSignal?: AbortSignal,
-  ): Promise<{ text: string }> {
+  ): Promise<{ text: string; awaitingApproval: boolean }> {
     const session = await this.prisma.session.findUnique({
       where: { id },
       include: { workspace: true },
@@ -170,9 +249,10 @@ export class SessionsService {
     ];
     const startedAt = BigInt(Date.now());
     let text = '';
-    let reasoning = '';
     const toolCalls: MessageToolCall[] = [];
     let streamStatus: MessageStreamStatus = 'completed';
+    let awaitingApproval = false;
+    let continuation: AgentContinuation | undefined;
     try {
       for await (const event of streamAgent(
         agentProfile,
@@ -186,15 +266,17 @@ export class SessionsService {
         Boolean(onEvent),
       )) {
         if (event.type === 'text') text += event.text;
-        if (event.type === 'reasoning') reasoning += event.text;
-        this.captureToolEvent(toolCalls, event);
+        this.captureToolEvent(toolCalls, event, text.length);
+        if (event.type === 'finish') {
+          awaitingApproval = event.awaitingApproval;
+          continuation = event.continuation;
+        }
         onEvent?.(event);
         if (event.type === 'error') throw event.error;
       }
     } catch (error) {
       streamStatus = abortSignal?.aborted ? 'stopped' : 'failed';
       await this.appendAssistantMessage(id, text, {
-        reasoning,
         toolCalls,
         streamStatus,
         startedAt,
@@ -202,18 +284,34 @@ export class SessionsService {
       });
       throw error;
     }
-    await this.appendAssistantMessage(id, text, {
-      reasoning,
+    const assistantMessage = await this.appendAssistantMessage(id, text, {
       toolCalls,
-      streamStatus,
+      streamStatus: awaitingApproval ? 'awaiting-approval' : streamStatus,
       startedAt,
-      completedAt: BigInt(Date.now()),
+      completedAt: awaitingApproval ? null : BigInt(Date.now()),
     });
+    if (awaitingApproval && continuation) {
+      const pending: PendingApprovalRun = {
+        sessionId: id,
+        messageId: assistantMessage.id,
+        profile: agentProfile,
+        context: {
+          workspaceRoot: session.workspace.path,
+          permissionMode: input.fullAccess ? 'full' : 'restricted',
+        },
+        continuation,
+        approvals: {},
+        text,
+        toolCalls,
+        startedAt,
+      };
+      this.indexPendingApprovals(pending);
+    }
     await this.prisma.session.update({
       where: { id },
       data: { updatedAt: BigInt(Date.now()) },
     });
-    return { text };
+    return { text, awaitingApproval };
   }
 
   private async appendMessage(
@@ -241,11 +339,10 @@ export class SessionsService {
     sessionId: string,
     content: string,
     metadata: {
-      reasoning: string;
       toolCalls: MessageToolCall[];
       streamStatus: MessageStreamStatus;
       startedAt: bigint;
-      completedAt: bigint;
+      completedAt: bigint | null;
     },
   ) {
     const last = await this.prisma.message.findFirst({
@@ -258,7 +355,7 @@ export class SessionsService {
         sessionId,
         role: 'assistant',
         content,
-        reasoning: metadata.reasoning || null,
+        reasoning: null,
         toolCalls: metadata.toolCalls.length
           ? JSON.stringify(metadata.toolCalls)
           : null,
@@ -266,15 +363,111 @@ export class SessionsService {
         startedAt: metadata.startedAt,
         completedAt: metadata.completedAt,
         sequence: (last?.sequence ?? 0) + 1,
-        createdAt: metadata.completedAt,
+        createdAt: metadata.completedAt ?? BigInt(Date.now()),
       },
     });
+  }
+
+  private async resumePendingApproval(
+    pending: PendingApprovalRun,
+    onEvent: (event: CoreStreamEvent) => void,
+    abortSignal: AbortSignal,
+  ): Promise<{ text: string; awaitingApproval: boolean }> {
+    let awaitingApproval = false;
+    let continuation: AgentContinuation | undefined;
+    try {
+      for await (const event of streamAgent(
+        pending.profile,
+        pending.context,
+        [],
+        pending.approvals,
+        abortSignal,
+        true,
+        pending.continuation,
+      )) {
+        if (event.type === 'text') pending.text += event.text;
+        this.captureToolEvent(pending.toolCalls, event, pending.text.length);
+        if (event.type === 'finish') {
+          awaitingApproval = event.awaitingApproval;
+          continuation = event.continuation;
+        }
+        onEvent(event);
+        if (event.type === 'error') throw event.error;
+      }
+    } catch (error) {
+      this.clearPendingApprovals(pending);
+      await this.updateAssistantMessage(pending, 'failed', BigInt(Date.now()));
+      throw error;
+    }
+
+    if (awaitingApproval && continuation) {
+      pending.continuation = continuation;
+      this.indexPendingApprovals(pending);
+      await this.updateAssistantMessage(pending, 'awaiting-approval', null);
+    } else {
+      this.clearPendingApprovals(pending);
+      await this.updateAssistantMessage(pending, 'completed', BigInt(Date.now()));
+    }
+    return { text: pending.text, awaitingApproval };
+  }
+
+  private async updateAssistantMessage(
+    pending: PendingApprovalRun,
+    streamStatus: MessageStreamStatus,
+    completedAt: bigint | null,
+  ) {
+    await this.prisma.message.update({
+      where: { id: pending.messageId },
+      data: {
+        content: pending.text,
+        reasoning: null,
+        toolCalls: JSON.stringify(pending.toolCalls),
+        streamStatus,
+        completedAt,
+      },
+    });
+    await this.prisma.session.update({
+      where: { id: pending.sessionId },
+      data: { updatedAt: BigInt(Date.now()) },
+    });
+  }
+
+  private indexPendingApprovals(pending: PendingApprovalRun) {
+    this.clearPendingApprovals(pending);
+    for (const toolCall of pending.toolCalls) {
+      if (toolCall.approval?.status === 'pending')
+        this.pendingApprovals.set(toolCall.approval.id, pending);
+    }
+  }
+
+  private clearPendingApprovals(pending: PendingApprovalRun) {
+    for (const [approvalId, value] of this.pendingApprovals) {
+      if (value === pending) this.pendingApprovals.delete(approvalId);
+    }
   }
 
   private captureToolEvent(
     toolCalls: MessageToolCall[],
     event: CoreStreamEvent,
+    contentOffset: number,
   ) {
+    if (event.type === 'approval') {
+      const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
+      if (toolCall) {
+        toolCall.input = event.input;
+        toolCall.approval = { id: event.approvalId, status: 'pending' };
+      } else {
+        toolCalls.push({
+          id: event.toolCallId,
+          toolName: event.toolName,
+          status: 'in-progress',
+          input: event.input,
+          contentOffset,
+          approval: { id: event.approvalId, status: 'pending' },
+        });
+      }
+      return;
+    }
     if (event.type === 'tool-call') {
       toolCalls.push({
         id: event.toolCallId,
@@ -282,6 +475,7 @@ export class SessionsService {
         status: 'in-progress',
         input: event.input,
         rawArguments: event.rawArguments,
+        contentOffset,
       });
       return;
     }
@@ -300,15 +494,17 @@ export class SessionsService {
     }
     if (event.type === 'tool-result') {
       const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
+      const status = isToolResultFailure(event.output) ? 'failed' : 'completed';
       if (toolCall) {
-        toolCall.status = 'completed';
+        toolCall.status = status;
         toolCall.output = event.output;
       } else {
         toolCalls.push({
           id: event.toolCallId,
           toolName: event.toolName,
-          status: 'completed',
+          status,
           output: event.output,
+          contentOffset,
         });
       }
       return;
@@ -325,7 +521,13 @@ export class SessionsService {
       if (existing) {
         existing.status = status;
       } else {
-        toolCalls.push({ id, toolName: event.toolName, status, output: event.data });
+        toolCalls.push({
+          id,
+          toolName: event.toolName,
+          status,
+          output: event.data,
+          contentOffset,
+        });
       }
     }
   }
@@ -375,7 +577,6 @@ export class SessionsService {
       content: message.content,
       sequence: message.sequence,
       createdAt: message.createdAt.toString(),
-      ...(message.reasoning ? { reasoning: message.reasoning } : {}),
       ...(message.toolCalls
         ? { toolCalls: this.parseToolCalls(message.toolCalls) }
         : {}),
@@ -401,8 +602,24 @@ export class SessionsService {
   }
 
   private isStreamStatus(value: string | null): value is MessageStreamStatus {
-    return ['thinking', 'streaming', 'completed', 'failed', 'stopped'].includes(
+    return [
+      'thinking',
+      'streaming',
+      'awaiting-approval',
+      'completed',
+      'failed',
+      'stopped',
+    ].includes(
       value ?? '',
     );
   }
+}
+
+function isToolResultFailure(output: unknown): boolean {
+  return (
+    typeof output === 'object' &&
+    output !== null &&
+    'error' in output &&
+    typeof output.error === 'string'
+  );
 }

@@ -2,6 +2,20 @@ import type { ResponseStreamEvent } from "openai/resources/responses/responses";
 
 export type StreamPhase = "idle" | "queued" | "created" | "in-progress" | "compacting" | "completed" | "failed" | "incomplete";
 
+export type PendingToolCall = {
+  callId: string;
+  itemId: string;
+  name: string;
+  arguments: string;
+};
+
+export type AgentContinuation = {
+  conversation: unknown[];
+  finalText: string;
+  pendingToolCalls: PendingToolCall[];
+  toolOutputs: unknown[];
+};
+
 export type CoreStreamEvent =
   | { type: "text"; text: string; itemId?: string; contentIndex?: number }
   | { type: "reasoning"; text: string; itemId?: string; contentIndex?: number }
@@ -16,7 +30,7 @@ export type CoreStreamEvent =
   | { type: "provider-event"; provider: string; sourceType: string; payload: unknown }
   | { type: "approval"; approvalId: string; toolCallId: string; toolName: string; input: unknown }
   | { type: "tool-result"; toolCallId: string; toolName: string; output: unknown }
-  | { type: "finish"; text: string; responseMessages: unknown[]; awaitingApproval: boolean }
+  | { type: "finish"; text: string; responseMessages: unknown[]; awaitingApproval: boolean; continuation?: AgentContinuation }
   | { type: "error"; error: Error; provider?: string; sourceType?: string; code?: string };
 
 export type StreamAdapter<TProviderEvent> = {

@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from '../src/agent/agent.module';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -410,6 +410,226 @@ describe('AppController (e2e)', () => {
           streamStatus: 'completed',
           startedAt: expect.any(String),
           completedAt: expect.any(String),
+        }),
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
+  it('persists an executed command with its input and result', async () => {
+    const provider = await import('node:http');
+    let requestCount = 0;
+    const call = {
+      id: 'item_command_1',
+      type: 'function_call',
+      call_id: 'call_command_1',
+      name: 'execCommand',
+      arguments: JSON.stringify({ command: 'printf tool-output' }),
+    };
+    const server = provider.createServer(async (incoming, response) => {
+      let body = '';
+      for await (const chunk of incoming) body += chunk.toString();
+      const requestBody = JSON.parse(body) as { input: unknown[] };
+      response.writeHead(200, {
+        'cache-control': 'no-cache',
+        'content-type': 'text/event-stream',
+      });
+      if (requestCount++ === 0) {
+        response.write(
+          `data: ${JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: call })}\n\n`,
+        );
+        response.end(
+          `data: ${JSON.stringify({
+            type: 'response.completed',
+            response: { id: 'resp_command_1', output: [call] },
+          })}\n\n`,
+        );
+        return;
+      }
+      expect(JSON.stringify(requestBody.input)).toContain('function_call_output');
+      expect(JSON.stringify(requestBody.input)).toContain('tool-output');
+      response.write(
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'msg_command_1', delta: 'command complete' })}\n\n`,
+      );
+      response.end(
+        `data: ${JSON.stringify({
+          type: 'response.completed',
+          response: { id: 'resp_command_2', output: [] },
+        })}\n\n`,
+      );
+    });
+    server.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('server did not start');
+
+    try {
+      const profile = await request(app.getHttpServer())
+        .post('/api/model-profiles/upsert')
+        .send({
+          name: 'Command provider',
+          provider: 'openai',
+          model: 'command-model',
+          baseUrl: `http://127.0.0.1:${address.port}/v1`,
+          apiKey: 'command-key',
+          isDefault: true,
+        })
+        .expect(200);
+      const workspacePath = join(databaseDirectory, 'command-project');
+      mkdirSync(workspacePath, { recursive: true });
+      const workspace = await request(app.getHttpServer())
+        .post('/api/workspaces/create')
+        .send({ name: '命令测试项目', path: workspacePath })
+        .expect(200);
+      const session = await request(app.getHttpServer())
+        .post('/api/sessions/create')
+        .send({ workspaceId: workspace.body.data.id })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post(`/api/sessions/${session.body.data.id}/messages/stream`)
+        .send({
+          content: 'run command',
+          profileId: profile.body.data.id,
+          fullAccess: true,
+        })
+        .expect(200);
+
+      const opened = await request(app.getHttpServer())
+        .get(`/api/sessions/${session.body.data.id}`)
+        .expect(200);
+      expect(opened.body.data.messages.at(-1)).toEqual(
+        expect.objectContaining({
+          role: 'assistant',
+          content: 'command complete',
+          toolCalls: [
+            expect.objectContaining({
+              id: 'call_command_1',
+              toolName: 'execCommand',
+              status: 'completed',
+              input: { command: 'printf tool-output' },
+              output: expect.objectContaining({
+                stdout: 'tool-output',
+                stderr: '',
+                exitCode: 0,
+                timedOut: false,
+              }),
+            }),
+          ],
+        }),
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
+  it('pauses for approval and resumes the same assistant message', async () => {
+    const provider = await import('node:http');
+    let requestCount = 0;
+    const call = {
+      id: 'item_approval_1',
+      type: 'function_call',
+      call_id: 'call_approval_1',
+      name: 'execCommand',
+      arguments: JSON.stringify({ command: 'printf approval-output' }),
+    };
+    const server = provider.createServer(async (incoming, response) => {
+      for await (const _chunk of incoming) {
+        // Consume the request body before responding.
+      }
+      response.writeHead(200, {
+        'cache-control': 'no-cache',
+        'content-type': 'text/event-stream',
+      });
+      if (requestCount++ === 0) {
+        response.write(
+          `data: ${JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: call })}\n\n`,
+        );
+        response.end(
+          `data: ${JSON.stringify({
+            type: 'response.completed',
+            response: { id: 'resp_approval_1', output: [call] },
+          })}\n\n`,
+        );
+        return;
+      }
+      response.write(
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'msg_approval_1', delta: 'approval complete' })}\n\n`,
+      );
+      response.end(
+        `data: ${JSON.stringify({
+          type: 'response.completed',
+          response: { id: 'resp_approval_2', output: [] },
+        })}\n\n`,
+      );
+    });
+    server.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('server did not start');
+
+    try {
+      const profile = await request(app.getHttpServer())
+        .post('/api/model-profiles/upsert')
+        .send({
+          name: 'Approval provider',
+          provider: 'openai',
+          model: 'approval-model',
+          baseUrl: `http://127.0.0.1:${address.port}/v1`,
+          apiKey: 'approval-key',
+        })
+        .expect(200);
+      const workspacePath = join(databaseDirectory, 'approval-project');
+      mkdirSync(workspacePath, { recursive: true });
+      const workspace = await request(app.getHttpServer())
+        .post('/api/workspaces/create')
+        .send({ name: '审批测试项目', path: workspacePath })
+        .expect(200);
+      const session = await request(app.getHttpServer())
+        .post('/api/sessions/create')
+        .send({ workspaceId: workspace.body.data.id })
+        .expect(200);
+
+      const paused = await request(app.getHttpServer())
+        .post(`/api/sessions/${session.body.data.id}/messages/stream`)
+        .send({ content: 'request approval', profileId: profile.body.data.id })
+        .expect(200);
+      expect(paused.text).toContain('"type":"approval"');
+      expect(paused.text).toContain('"awaitingApproval":true');
+
+      const resumed = await request(app.getHttpServer())
+        .post(
+          `/api/sessions/${session.body.data.id}/approvals/call_approval_1%3Aapproval/stream`,
+        )
+        .send({ approved: true })
+        .expect(200);
+      expect(resumed.text).toContain('approval complete');
+
+      const opened = await request(app.getHttpServer())
+        .get(`/api/sessions/${session.body.data.id}`)
+        .expect(200);
+      expect(opened.body.data.messages.at(-1)).toEqual(
+        expect.objectContaining({
+          content: 'approval complete',
+          streamStatus: 'completed',
+          toolCalls: [
+            expect.objectContaining({
+              id: 'call_approval_1',
+              status: 'completed',
+              approval: {
+                id: 'call_approval_1:approval',
+                status: 'approved',
+              },
+              output: expect.objectContaining({ stdout: 'approval-output' }),
+            }),
+          ],
         }),
       );
     } finally {
