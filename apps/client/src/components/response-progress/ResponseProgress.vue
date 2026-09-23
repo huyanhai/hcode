@@ -2,24 +2,26 @@
   <div class="max-w-full text-sm text-muted-foreground">
     <Thinking v-if="status === 'thinking'">正在思考</Thinking>
     <div v-else>
-      <div class="flex gap-2 items-center group/item">
+      <div
+        class="flex gap-2 items-center group/item"
+        @click="showDetails = !showDetails"
+      >
         <span>{{ summary }}</span>
         <ChevronRight
-          class="size-4 shrink-0 invisible group-hover/item:visible"
+          :class="
+            cn(
+              'size-4 shrink-0 invisible group-hover/item:visible',
+              showDetails ? 'rotate-90' : '',
+            )
+          "
           aria-hidden="true"
         />
       </div>
       <Separator class="my-2" />
-      <div v-if="hasDetails">
-        <p
-          v-if="reasoning"
-          class="whitespace-pre-wrap leading-6 text-foreground/80"
-        >
-          <Markdown :content="reasoning" />
-        </p>
+      <div v-if="hasDetails && showDetails">
         <div v-if="toolCalls.length" class="space-y-1">
-          <div v-for="toolCall in toolCalls" :key="toolCall.id">
-            <Tools class="group/tool">
+          <div v-for="toolCall in toolCalls" :key="toolCall.id" class="my-4">
+            <Tools class="group/tool mb-2">
               <template #icon>
                 <component :is="TOOLS_NAME_ICON_MAPS[toolCall.toolName]" />
               </template>
@@ -32,71 +34,28 @@
                 />
               </div>
             </Tools>
-            <div class="typeset typeset-docs">
-              <pre class="max-h-50 overflow-auto text-left max-h-50 items-start overflow-x-auto whitespace-pre-wrap">
-                {{
-                  toolCall.toolName === "execCommand"
-                    ? commandOutput(toolCall.output)
-                    : formatValue(toolCall.output)
-                }}
-              </pre>
+            <div class="typeset typeset-docs" v-if="isExecCommand(toolCall)">
+              <pre
+                class="max-h-50 overflow-auto whitespace-pre-wrap font-mono"
+                >{{ commandOutput(toolCall.output).trim() }}</pre>
             </div>
-            <!-- <div>
-              <div
-                v-if="
-                  toolCall.toolName === 'execCommand' && commandFor(toolCall)
-                "
-              >
-                <div class="mb-1 text-xs font-medium text-muted-foreground">
-                  执行命令
-                </div>
-                <pre
-                  class="overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
-                  >{{ commandFor(toolCall) }}</pre>
-              </div>
-              <div v-else-if="inputFor(toolCall) !== undefined">
-                <div class="mb-1 text-xs font-medium text-muted-foreground">
-                  操作参数
-                </div>
-                <pre
-                  class="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
-                  >{{ formatValue(inputFor(toolCall)) }}</pre>
-              </div>
-              <div v-if="toolCall.output !== undefined">
-                <div class="mb-1 text-xs font-medium text-muted-foreground">
-                  {{
-                    toolCall.toolName === "execCommand"
-                      ? "命令输出"
-                      : "操作结果"
-                  }}
-                </div>
-                
-              </div>
-              <div
-                v-if="
-                  toolCall.output === undefined &&
-                  toolCall.status === 'in-progress'
-                "
-                class="text-xs text-muted-foreground"
-              >
-                正在等待工具结果…
-              </div>
-            </div> -->
+            <DiffRender v-else />
+            <!-- formatValue(toolCall.output).trim() -->
           </div>
         </div>
       </div>
       <p
-        v-else
-        class="ml-2 mt-1 border-l pb-2 pl-4 pt-1 text-xs text-muted-foreground"
+        v-if="reasoning"
+        class="whitespace-pre-wrap leading-6 text-foreground/80"
       >
-        {{ status === "streaming" ? "正在接收响应" : "没有可展开的过程记录" }}
+        <Markdown :content="reasoning" />
       </p>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ChevronRight, SquareTerminal, File } from "@lucide/vue";
+import { ChevronRight } from "@lucide/vue";
 import {
   ToolsName,
   type ResponseStreamStatus,
@@ -104,6 +63,9 @@ import {
 } from "./types";
 import Thinking from "./markers/Thinking.vue";
 import { TOOLS_NAME_ICON_MAPS } from "./constants";
+import { cn } from "@/lib/utils";
+
+const showDetails = ref(false);
 
 const props = withDefaults(
   defineProps<{
@@ -128,9 +90,6 @@ const hasDetails = computed(
   () => Boolean(props.reasoning?.trim()) || props.toolCalls.length > 0,
 );
 
-const commandToolCalls = computed(() =>
-  props.toolCalls.filter((toolCall) => toolCall.toolName === "execCommand"),
-);
 const summary = computed(() => {
   const elapsed = formatElapsed(elapsedMilliseconds());
   if (props.status === "completed") return `用时 ${elapsed} · 已完成`;
@@ -144,6 +103,7 @@ watch(
   (status) => {
     if (status === "streaming" && !timer) {
       now.value = Date.now();
+      showDetails.value = true;
       timer = setInterval(() => {
         now.value = Date.now();
       }, 1_000);
@@ -152,6 +112,10 @@ watch(
       clearInterval(timer);
       timer = undefined;
     }
+
+    if (status === "completed") {
+      showDetails.value = false;
+    }
   },
   { immediate: true },
 );
@@ -159,6 +123,10 @@ watch(
 onBeforeUnmount(() => {
   if (timer) clearInterval(timer);
 });
+
+function isExecCommand(toolCall: ResponseToolCall) {
+  return toolCall.toolName === "execCommand";
+}
 
 function pendingStyle(toolCall: ResponseToolCall) {
   return toolCall.status === "in-progress" ? "shimmer" : "";
@@ -176,12 +144,6 @@ function formatElapsed(milliseconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
   return minutes > 0 ? `${minutes} 分 ${remainder} 秒` : `${remainder} 秒`;
-}
-
-function toolStatusLabel(status: ResponseToolCall["status"]): string {
-  if (status === "completed") return "已完成";
-  if (status === "failed") return "失败";
-  return "执行中";
 }
 
 function commandFor(toolCall: ResponseToolCall): string {
@@ -240,7 +202,7 @@ function commandOutput(value: unknown): string {
   };
   const sections: string[] = [];
   if (output.stdout) sections.push(String(output.stdout));
-  if (output.stderr) sections.push(`[stderr]\n${String(output.stderr)}`);
+  if (output.stderr) sections.push(`${String(output.stderr)}`);
   if (output.timedOut) sections.push("[命令超时]");
   if (output.exitCode !== undefined && output.exitCode !== null)
     sections.push(`[退出码: ${String(output.exitCode)}]`);

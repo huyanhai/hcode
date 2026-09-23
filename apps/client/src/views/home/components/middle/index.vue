@@ -38,7 +38,9 @@
                     :tool-name="approval.toolName"
                     :input="approval.input"
                     :busy="respondingApprovalId === approval.approvalId"
-                    @respond="respondToApproval(message.id, approval.approvalId, $event)"
+                    @respond="
+                      respondToApproval(message.id, approval.approvalId, $event)
+                    "
                   />
                   <Markdown :content="message.content" />
                 </template>
@@ -207,8 +209,9 @@ async function submit() {
         model: data.model || undefined,
         fullAccess: data.fullAccess,
       },
-      (event: SessionStreamEvent) =>
-        updateStreamMessage(sessionId, assistantMessageId, event),
+      (event: SessionStreamEvent) => {
+        return updateStreamMessage(sessionId, assistantMessageId, event);
+      },
       abortController.signal,
     );
     const detail = await openSession(sessionId);
@@ -244,8 +247,12 @@ function updateStreamMessage(
         if (event.type === "done") {
           return {
             ...message,
-            streamStatus: event.awaitingApproval ? "awaiting-approval" : "completed",
-            ...(event.awaitingApproval ? {} : { completedAt: String(Date.now()) }),
+            streamStatus: event.awaitingApproval
+              ? "awaiting-approval"
+              : "completed",
+            ...(event.awaitingApproval
+              ? {}
+              : { completedAt: String(Date.now()) }),
           };
         }
         if (event.type === "error") {
@@ -258,7 +265,9 @@ function updateStreamMessage(
         const next = {
           ...message,
           streamStatus:
-            message.streamStatus === "thinking" ? "streaming" : message.streamStatus,
+            message.streamStatus === "thinking"
+              ? "streaming"
+              : message.streamStatus,
         };
         if (event.type === "text") {
           return { ...next, content: `${message.content}${event.text}` };
@@ -310,7 +319,11 @@ function updateStreamMessage(
             ...next,
             toolCalls: (message.toolCalls ?? []).map((toolCall) =>
               toolCall.id === event.toolCallId
-                ? { ...toolCall, rawArguments, ...(input === undefined ? {} : { input }) }
+                ? {
+                    ...toolCall,
+                    rawArguments,
+                    ...(input === undefined ? {} : { input }),
+                  }
                 : toolCall,
             ),
           };
@@ -472,7 +485,10 @@ async function respondToApproval(
       (event) => updateStreamMessage(sessionId, messageId, event),
       abortController.signal,
     );
-    queryClient.setQueryData(["session", sessionId], await openSession(sessionId));
+    queryClient.setQueryData(
+      ["session", sessionId],
+      await openSession(sessionId),
+    );
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
   } catch (error) {
     updateMessageStatus(sessionId, messageId, "failed");

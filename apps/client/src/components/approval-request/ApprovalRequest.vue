@@ -4,16 +4,22 @@
       <ShieldAlert class="size-4 text-amber-600" aria-hidden="true" />
       <span>需要审批</span>
     </div>
-    <p class="mt-2 text-muted-foreground">允许执行 {{ toolName }}</p>
-    <pre
+    <p class="mt-2 text-muted-foreground">是否允许执行命令?</p>
+    <div
       class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
-      >{{ formatValue(input) }}</pre
     >
+      {{ input.command }}
+    </div>
     <div class="mt-3 flex gap-2">
       <Button size="sm" :disabled="busy" @click="emit('respond', true)">
         允许
       </Button>
-      <Button size="sm" variant="outline" :disabled="busy" @click="emit('respond', false)">
+      <Button
+        size="sm"
+        variant="outline"
+        :disabled="busy"
+        @click="emit('respond', false)"
+      >
         拒绝
       </Button>
     </div>
@@ -33,13 +39,4 @@ defineProps<{
 const emit = defineEmits<{
   respond: [approved: boolean];
 }>();
-
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  try {
-    return JSON.stringify(value, null, 2) ?? String(value);
-  } catch {
-    return String(value);
-  }
-}
 </script>
