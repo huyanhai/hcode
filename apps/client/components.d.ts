@@ -142,6 +142,7 @@ declare module 'vue' {
     TableRow: typeof import('./src/components/ui/table/TableRow.vue')['default']
     Textarea: typeof import('./src/components/ui/textarea/Textarea.vue')['default']
     Thinking: typeof import('./src/components/response-progress/markers/Thinking.vue')['default']
-    Tools: typeof import('./src/components/response-progress/markers/Tools.vue')['default']
+    Tool: typeof import('./src/components/response-progress/markers/Tool.vue')['default']
+    Tools: typeof import('./src/components/response-progress/Tools.vue')['default']
   }
 }

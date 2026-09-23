@@ -3,7 +3,7 @@
     <Thinking v-if="status === 'thinking'">正在思考</Thinking>
     <div v-else>
       <div
-        class="flex gap-2 items-center group/item"
+        class="flex gap-2 items-center group/item cursor-pointer"
         @click="showDetails = !showDetails"
       >
         <span>{{ summary }}</span>
@@ -19,29 +19,48 @@
       </div>
       <Separator class="my-2" />
       <div v-if="hasDetails && showDetails">
-        <div v-if="toolCalls.length" class="space-y-1">
-          <div v-for="toolCall in toolCalls" :key="toolCall.id" class="my-4">
-            <Tools class="group/tool mb-2">
-              <template #icon>
-                <component :is="TOOLS_NAME_ICON_MAPS[toolCall.toolName]" />
-              </template>
-              <div class="flex items-center gap-2">
-                <p :class="pendingStyle(toolCall)">
-                  {{ toolSummary(toolCall) }}
-                </p>
-                <ChevronRight
-                  class="size-4 shrink-0 transition-transform invisible group-hover/tool:visible"
-                />
+        <div v-if="toolCalls.length" class="flex flex-col gap-2 mb-2">
+          <Tools
+            v-for="toolCall in toolCalls"
+            :key="toolCall.id"
+            :hasDetails="hasFileDetails(toolCall)"
+          >
+            <template #title>
+              <Tool class="group/tool mb-0!">
+                <template #icon>
+                  <component :is="TOOLS_NAME_ICON_MAPS[toolCall.toolName]" />
+                </template>
+                <div class="flex items-center gap-2">
+                  <p :class="pendingStyle(toolCall)">
+                    {{ toolSummary(toolCall) }}
+                  </p>
+                  <ChevronRight
+                    v-if="hasFileDetails(toolCall)"
+                    :class="
+                      cn(
+                        'size-4 shrink-0 transition-transform invisible group-hover/tool:visible',
+                      )
+                    "
+                  />
+                </div>
+              </Tool>
+            </template>
+            <template #default>
+              <div class="typeset typeset-docs" v-if="isExecCommand(toolCall)">
+                <pre
+                  class="max-h-50 overflow-auto whitespace-pre-wrap font-mono"
+                  >{{ commandOutput(toolCall.output).trim() }}</pre>
               </div>
-            </Tools>
-            <div class="typeset typeset-docs" v-if="isExecCommand(toolCall)">
-              <pre
-                class="max-h-50 overflow-auto whitespace-pre-wrap font-mono"
-                >{{ commandOutput(toolCall.output).trim() }}</pre>
-            </div>
-            <DiffRender v-else />
-            <!-- formatValue(toolCall.output).trim() -->
-          </div>
+              <DiffRender
+                v-else-if="fileChangeFor(toolCall)"
+                :file-name="fileChangeFor(toolCall)?.path ?? ''"
+                :original-content="
+                  fileChangeFor(toolCall)?.originalContent ?? ''
+                "
+                :content="fileChangeFor(toolCall)?.content ?? ''"
+              />
+            </template>
+          </Tools>
         </div>
       </div>
       <p
@@ -125,11 +144,43 @@ onBeforeUnmount(() => {
 });
 
 function isExecCommand(toolCall: ResponseToolCall) {
-  return toolCall.toolName === "execCommand";
+  return toolCall.toolName === ToolsName.EXEC_COMMAND;
 }
 
 function pendingStyle(toolCall: ResponseToolCall) {
   return toolCall.status === "in-progress" ? "shimmer" : "";
+}
+
+function hasFileDetails(toolCall: ResponseToolCall) {
+  return [ToolsName.EXEC_COMMAND, ToolsName.WRITE_FILE].includes(
+    toolCall.toolName as string as ToolsName,
+  );
+}
+
+type FileChange = {
+  path: string;
+  originalContent: string;
+  content: string;
+};
+
+function fileChangeFor(toolCall: ResponseToolCall): FileChange | undefined {
+  if (
+    toolCall.toolName !== ToolsName.WRITE_FILE &&
+    toolCall.toolName !== ToolsName.APPLY_PATCH
+  ) {
+    return undefined;
+  }
+  const output = toolCall.output;
+  if (!output || typeof output !== "object") return undefined;
+  const value = output as Partial<FileChange>;
+  if (
+    typeof value.path !== "string" ||
+    typeof value.originalContent !== "string" ||
+    typeof value.content !== "string"
+  ) {
+    return undefined;
+  }
+  return value as FileChange;
 }
 
 function elapsedMilliseconds(): number {

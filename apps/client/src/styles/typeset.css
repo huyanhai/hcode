@@ -23,6 +23,10 @@
     overflow-wrap: break-word;
     margin-trim: block-start;
 
+    p {
+      font-size: calc(var(--typeset-size) * 0.9);
+    }
+
     @media (min-width: 48rem), print {
       font-size: var(--typeset-size);
     }

@@ -3,6 +3,12 @@ import { dirname, join } from "node:path";
 import { createWorkspacePathResolver } from "./workspace.js";
 
 export type FileToolContext = { workspaceRoot: string };
+export type FileChangeResult = {
+  path: string;
+  bytes: number;
+  originalContent: string;
+  content: string;
+};
 
 export async function listFiles(context: FileToolContext, requestedPath = "."): Promise<string[]> {
   const resolvePath = createWorkspacePathResolver(context.workspaceRoot);
@@ -17,15 +23,19 @@ export async function readWorkspaceFile(context: FileToolContext, requestedPath:
   return { path: requestedPath, content: await readFile(path, "utf8") };
 }
 
-export async function writeWorkspaceFile(context: FileToolContext, requestedPath: string, content: string): Promise<{ path: string; bytes: number }> {
+export async function writeWorkspaceFile(context: FileToolContext, requestedPath: string, content: string): Promise<FileChangeResult> {
   const resolvePath = createWorkspacePathResolver(context.workspaceRoot);
   const path = resolvePath(requestedPath);
+  const originalContent = await readFile(path, "utf8").catch((error: unknown) => {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return "";
+    throw error;
+  });
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, content, "utf8");
-  return { path: requestedPath, bytes: Buffer.byteLength(content) };
+  return { path: requestedPath, bytes: Buffer.byteLength(content), originalContent, content };
 }
 
-export async function applyWorkspacePatch(context: FileToolContext, requestedPath: string, patch: string): Promise<{ path: string; bytes: number }> {
+export async function applyWorkspacePatch(context: FileToolContext, requestedPath: string, patch: string): Promise<FileChangeResult> {
   const resolvePath = createWorkspacePathResolver(context.workspaceRoot);
   const path = resolvePath(requestedPath, { mustExist: true });
   const original = await readFile(path, "utf8");
@@ -79,7 +89,7 @@ export async function applyWorkspacePatch(context: FileToolContext, requestedPat
   output.push(...originalLines.slice(originalIndex));
   const content = `${output.join(eol)}${hasFinalNewline ? eol : ""}`;
   await writeFile(path, content, "utf8");
-  return { path: requestedPath, bytes: Buffer.byteLength(content) };
+  return { path: requestedPath, bytes: Buffer.byteLength(content), originalContent: original, content };
 }
 
 export async function searchWorkspaceFiles(context: FileToolContext, query: string, requestedPath = "."): Promise<Array<{ path: string; line: number; text: string }>> {

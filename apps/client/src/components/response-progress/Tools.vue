@@ -1,21 +1,17 @@
 <template>
-  <Button
-    :class="cn('menu-button justify-between shadow-none', $attrs.class)"
-    variant="ghost"
-    v-bind="$attrs"
-  >
-    <div class="flex items-center flex-1 gap-1 w-1/2 truncate">
+  <details :open="false" v-if="hasDetails">
+    <summary class="flex cursor-pointer list-none items-center">
+      <slot name="title" />
+    </summary>
+    <div class="mt-2">
       <slot />
     </div>
-    <div class="flex gap-2">
-      <slot name="action" />
-    </div>
-  </Button>
+  </details>
+  <slot name="title" v-else />
 </template>
 <script lang="ts" setup>
-import { cn } from "@/lib/utils";
-
 //#region Props
+defineProps<{ hasDetails?: boolean }>();
 //#endregion
 //#region Emits
 //#endregion

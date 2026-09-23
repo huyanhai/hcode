@@ -14,10 +14,17 @@ test("file tools support nested writes and reject symlink escapes", async () => 
   writeFileSync(join(outside, "secret.txt"), "secret");
   symlinkSync(outside, join(workspace, "escape"));
   try {
-    await writeWorkspaceFile({ workspaceRoot: workspace }, "nested/deep/file.txt", "hello");
+    const newFile = await writeWorkspaceFile({ workspaceRoot: workspace }, "nested/deep/file.txt", "hello");
+    assert.equal(newFile.originalContent, "");
+    assert.equal(newFile.content, "hello");
     assert.equal((await readWorkspaceFile({ workspaceRoot: workspace }, "nested/deep/file.txt")).content, "hello");
     await writeWorkspaceFile({ workspaceRoot: workspace }, "patched.txt", "first\nsecond\nthird\n");
-    await applyWorkspacePatch({ workspaceRoot: workspace }, "patched.txt", "@@ -1,3 +1,3 @@\n first\n-second\n+changed\n third");
+    const rewrittenFile = await writeWorkspaceFile({ workspaceRoot: workspace }, "patched.txt", "first\nrewritten\nthird\n");
+    assert.equal(rewrittenFile.originalContent, "first\nsecond\nthird\n");
+    assert.equal(rewrittenFile.content, "first\nrewritten\nthird\n");
+    const patchedFile = await applyWorkspacePatch({ workspaceRoot: workspace }, "patched.txt", "@@ -1,3 +1,3 @@\n first\n-rewritten\n+changed\n third");
+    assert.equal(patchedFile.originalContent, "first\nrewritten\nthird\n");
+    assert.equal(patchedFile.content, "first\nchanged\nthird\n");
     assert.equal((await readWorkspaceFile({ workspaceRoot: workspace }, "patched.txt")).content, "first\nchanged\nthird\n");
     await assert.rejects(
       applyWorkspacePatch({ workspaceRoot: workspace }, "patched.txt", "@@ -1,1 +1,1 @@\n-stale\n+wrong"),
