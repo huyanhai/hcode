@@ -20,7 +20,7 @@
   }
 
   .glass-bg {
-    @apply bg-white/60! backdrop-blur-md!;
+    @apply bg-white/50! backdrop-blur-sm!;
   }
 
   .no-scrollbar {

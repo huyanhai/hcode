@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-full relative border-t">
+  <div class="flex flex-col h-full relative border-t bg-background text-foreground">
     <div class="h-12 shrink-0 border-b"></div>
     <div class="relative p-4 h-1/2 flex-1 box-border w-full max-w-[800px] mx-auto flex flex-col">
       <MessageScroller class="h-1/2 flex-1">
