@@ -44,6 +44,7 @@ export class SessionsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  // 查询当前项目下的所有会话
   async list(workspaceId?: string): Promise<SessionSummary[]> {
     const sessions = await this.prisma.session.findMany({
       where: { ...(workspaceId ? { workspaceId } : {}), status: 'active' },
@@ -52,6 +53,7 @@ export class SessionsService {
     return sessions.map((session) => this.toSummary(session));
   }
 
+  // 会话归档
   async archive(id: string): Promise<SessionSummary> {
     const session = await this.prisma.session.findUnique({ where: { id } });
     if (!session) throw new NotFoundException('会话不存在');
@@ -64,6 +66,7 @@ export class SessionsService {
     return this.toSummary(archived);
   }
 
+  // 创建新会话
   async create(input: CreateSessionDto): Promise<SessionSummary> {
     const workspace = await this.prisma.workspace.findUnique({
       where: { id: input.workspaceId },
@@ -71,6 +74,7 @@ export class SessionsService {
     if (!workspace) throw new NotFoundException('工作区不存在');
     const title = input.title?.trim() || '新会话';
     if (title === '新会话') {
+      // 判断当前项目下是否存在新的会话，存在就不新建会话
       const emptySession = await this.prisma.session.findFirst({
         where: { workspaceId: workspace.id, status: 'active', title },
         orderBy: { createdAt: 'desc' },
@@ -92,6 +96,7 @@ export class SessionsService {
     return this.toSummary(session);
   }
 
+  // 查询会话历史
   async open(id: string): Promise<SessionDetail> {
     const session = await this.prisma.session.findUnique({ where: { id } });
     if (!session) throw new NotFoundException('会话不存在');
@@ -112,6 +117,7 @@ export class SessionsService {
     return this.open(id);
   }
 
+  // 流式会话
   async stream(
     id: string,
     input: SendMessageDto,
@@ -125,9 +131,14 @@ export class SessionsService {
       response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
       response.setHeader('Cache-Control', 'no-cache, no-transform');
       response.setHeader('Connection', 'keep-alive');
-      const result = await this.run(id, input, (event) => {
-        response.write(`data: ${JSON.stringify(event)}\n\n`);
-      }, abortController.signal);
+      const result = await this.run(
+        id,
+        input,
+        (event) => {
+          response.write(`data: ${JSON.stringify(event)}\n\n`);
+        },
+        abortController.signal,
+      );
       if (!response.destroyed) {
         response.write(
           `data: ${JSON.stringify({
@@ -418,7 +429,11 @@ export class SessionsService {
       await this.updateAssistantMessage(pending, 'awaiting-approval', null);
     } else {
       this.clearPendingApprovals(pending);
-      await this.updateAssistantMessage(pending, 'completed', BigInt(Date.now()));
+      await this.updateAssistantMessage(
+        pending,
+        'completed',
+        BigInt(Date.now()),
+      );
     }
     return { text: pending.text, awaitingApproval };
   }
@@ -494,7 +509,8 @@ export class SessionsService {
     if (event.type === 'tool-call-delta') {
       const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
       if (toolCall) {
-        const rawArguments = event.arguments ?? `${toolCall.rawArguments ?? ''}${event.delta}`;
+        const rawArguments =
+          event.arguments ?? `${toolCall.rawArguments ?? ''}${event.delta}`;
         toolCall.rawArguments = rawArguments;
         try {
           toolCall.input = JSON.parse(rawArguments || '{}');
@@ -595,9 +611,7 @@ export class SessionsService {
       ...(this.isStreamStatus(message.streamStatus)
         ? { streamStatus: message.streamStatus }
         : {}),
-      ...(message.startedAt
-        ? { startedAt: message.startedAt.toString() }
-        : {}),
+      ...(message.startedAt ? { startedAt: message.startedAt.toString() } : {}),
       ...(message.completedAt
         ? { completedAt: message.completedAt.toString() }
         : {}),
@@ -621,9 +635,7 @@ export class SessionsService {
       'completed',
       'failed',
       'stopped',
-    ].includes(
-      value ?? '',
-    );
+    ].includes(value ?? '');
   }
 }
 

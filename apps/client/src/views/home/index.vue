@@ -1,6 +1,6 @@
 <template>
   <Top
-    class="absolute h-10 w-full z-10 pr-2"
+    class="absolute h-12 w-full z-10 pr-2"
     v-model:left="showLeft"
     v-model:right="showRight"
     v-model:bottom="showBottom"
@@ -14,9 +14,7 @@
       <Left />
     </template>
     <template #middle>
-      <div class="pt-8 px-4 h-full box-border">
-        <Middle />
-      </div>
+      <Middle />
     </template>
     <template #right>
       <Right />

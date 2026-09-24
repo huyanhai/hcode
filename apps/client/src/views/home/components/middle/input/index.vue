@@ -1,6 +1,6 @@
 <template>
   <form class="w-full" @submit.prevent="handleSubmit">
-    <InputGroup class="items-stretch overflow-hidden rounded-2xl gap-2 pt-2">
+    <InputGroup class="items-stretch overflow-hidden rounded-2xl gap-2 pt-2 shadow">
       <div class="w-full flex flex-col gap-2 px-4">
         <div
           class="flex gap-2 items-end"

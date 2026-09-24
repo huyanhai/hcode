@@ -63,13 +63,8 @@
           </Tools>
         </div>
       </div>
-      <p
-        v-if="reasoning"
-        class="whitespace-pre-wrap leading-6 text-foreground/80"
-      >
-        <Markdown :content="reasoning" />
-      </p>
     </div>
+    <Thinking v-if="reasoningByLastRow">{{ reasoningByLastRow }}</Thinking>
   </div>
 </template>
 
@@ -108,6 +103,11 @@ let timer: ReturnType<typeof setInterval> | undefined;
 const hasDetails = computed(
   () => Boolean(props.reasoning?.trim()) || props.toolCalls.length > 0,
 );
+
+const reasoningByLastRow = computed(() => {
+  const textList = props.reasoning.split("/n");
+  return textList[textList.length - 1];
+});
 
 const summary = computed(() => {
   const elapsed = formatElapsed(elapsedMilliseconds());

@@ -1,69 +1,75 @@
 <template>
-  <div class="flex flex-col h-full gap-2 pb-4 max-w-[800px] mx-auto">
-    <div class="flex-1 h-1/2">
-      <MessageScrollerProvider
-        auto-scroll
-        default-scroll-position="last-anchor"
-      >
-        <MessageScroller>
-          <MessageScrollerViewport class="no-scrollbar pb-10">
-            <MessageScrollerContent>
-              <MessageScrollerItem
-                v-for="message in messages"
-                :key="message.id"
-                :message-id="message.id"
-                :scroll-anchor="
-                  message.role === 'user' || message.id === messages.at(-1)?.id
-                "
-              >
-                <div v-if="message.role === 'user'" class="flex justify-end">
-                  <Bubble variant="muted" align="end">
-                    <BubbleContent class="text-base">
-                      <Markdown :content="message.content" />
-                    </BubbleContent>
-                  </Bubble>
-                </div>
-                <template v-else>
-                  <ResponseProgress
-                    v-if="message.streamStatus"
-                    :status="message.streamStatus"
-                    :started-at="message.startedAt"
-                    :completed-at="message.completedAt"
-                    :reasoning="message.reasoning"
-                    :tool-calls="message.toolCalls"
-                  />
-                  <ApprovalRequest
-                    v-for="approval in pendingApprovals(message)"
-                    :key="approval.approvalId"
-                    :tool-name="approval.toolName"
-                    :input="approval.input"
-                    :busy="respondingApprovalId === approval.approvalId"
-                    @respond="
-                      respondToApproval(message.id, approval.approvalId, $event)
-                    "
-                  />
-                  <Markdown :content="message.content" />
-                </template>
-              </MessageScrollerItem>
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-          <MessageScrollerButton
-            class="rounded-full border glass-bg"
-            direction="end"
-          >
-            <Ellipsis class="w-6! h-6! dot-bounce opacity-50" v-if="sending" />
-            <MoveDown class="opacity-50" v-else />
-          </MessageScrollerButton>
-        </MessageScroller>
-      </MessageScrollerProvider>
+  <div class="flex flex-col h-full relative border-t">
+    <div class="h-12 shrink-0 border-b"></div>
+    <div class="relative p-4 h-1/2 flex-1 box-border w-full max-w-[800px] mx-auto flex flex-col">
+      <MessageScroller class="h-1/2 flex-1">
+        <MessageScrollerViewport
+          class="no-scrollbar pb-10"
+          @scroll="syncActiveHistoryTurn"
+        >
+          <MessageScrollerContent>
+            <MessageScrollerItem
+              v-for="message in messages"
+              :key="message.id"
+              :message-id="message.id"
+              :scroll-anchor="
+                message.role === 'user' || message.id === messages.at(-1)?.id
+              "
+            >
+              <div v-if="message.role === 'user'" class="flex justify-end">
+                <Bubble variant="muted" align="end">
+                  <BubbleContent class="text-base">
+                    <Markdown :content="message.content" />
+                  </BubbleContent>
+                </Bubble>
+              </div>
+              <template v-else>
+                <ResponseProgress
+                  v-if="message.streamStatus"
+                  :status="message.streamStatus"
+                  :started-at="message.startedAt"
+                  :completed-at="message.completedAt"
+                  :reasoning="message.reasoning"
+                  :tool-calls="message.toolCalls"
+                />
+                <ApprovalRequest
+                  v-for="approval in pendingApprovals(message)"
+                  :key="approval.approvalId"
+                  :tool-name="approval.toolName"
+                  :input="approval.input"
+                  :busy="respondingApprovalId === approval.approvalId"
+                  @respond="
+                    respondToApproval(message.id, approval.approvalId, $event)
+                  "
+                />
+                <Markdown :content="message.content" />
+              </template>
+            </MessageScrollerItem>
+          </MessageScrollerContent>
+        </MessageScrollerViewport>
+        <MessageScrollerButton
+          class="rounded-full border glass-bg"
+          direction="end"
+        >
+          <Ellipsis class="w-6! h-6! dot-bounce opacity-50" v-if="sending" />
+          <MoveDown class="opacity-50" v-else />
+        </MessageScrollerButton>
+      </MessageScroller>
+      <Input
+        v-model="data"
+        :models="modelOptions"
+        :sending="sending"
+        :disabled="!selectedSessionId"
+        @submit="submit"
+        @stop="stopTurn"
+      />
     </div>
-    <Input
-      v-model="data"
-      :models="modelOptions"
-      :sending="sending"
-      :disabled="!selectedSessionId"
-      @submit="submit"
-      @stop="stopTurn"
+    <ChatHistoryRail
+      v-if="historyTurns.length"
+      :active-fn="isActiveHistoryTurn"
+      :items="historyTurns"
+      class="absolute left-0 top-1/2 -translate-y-1/2"
+      @select="scrollToHistoryTurn"
     />
   </div>
 </template>
@@ -90,6 +96,15 @@ import {
   type ResponseToolCall,
 } from "@/components/response-progress";
 import { ApprovalRequest } from "@/components/approval-request";
+import {
+  ChatHistoryRail,
+  type ChatHistoryRailItem,
+} from "@/components/chat-history-rail";
+import { buildChatHistoryTurns } from "./chat-history";
+import {
+  provideMessageScroller,
+  useMessageScroller,
+} from "@/components/ui/message-scroller";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -103,21 +118,24 @@ const sending = ref(false);
 let abortController: AbortController | undefined;
 const respondingApprovalId = ref<string>();
 
-//#region Props
-//#endregion
-//#region Emits
-//#endregion
-//#region Computed
-const messages = computed(() => sessionQuery.data.value?.messages ?? []);
+const { scrollToMessage } = provideMessageScroller({
+  autoScroll: true,
+  defaultScrollPosition: "last-anchor",
+}).context;
+
 const defaultProfile = computed<ModelProfileSummary | undefined>(() => {
   const profiles = profilesQuery.data.value ?? [];
   return profiles.find((profile) => profile.isDefault) ?? profiles[0];
 });
+
+//#region Props
+//#endregion
+//#region Emits
 //#endregion
 //#region Hooks
 const selectedSessionId = useSessionSelection();
 const queryClient = useQueryClient();
-
+// 查询会话
 const sessionQuery = useQuery<SessionDetail>({
   queryKey: computed(() => ["session", selectedSessionId.value]),
   queryFn: () => openSession(selectedSessionId.value),
@@ -125,17 +143,26 @@ const sessionQuery = useQuery<SessionDetail>({
   retry: false,
 });
 
+// 查询模型列表
 const profilesQuery = useQuery({
   queryKey: ["model-profiles"],
   queryFn: listModelProfiles,
 });
 
+// 根据模型id查询provider
 const modelsQuery = useQuery({
   queryKey: computed(() => ["provider-models", defaultProfile.value?.id ?? ""]),
   queryFn: () => listProfileModels(defaultProfile.value!.id),
   enabled: computed(() => Boolean(defaultProfile.value?.id)),
   retry: false,
 });
+//#endregion
+//#region Watch
+//#region Computed
+// 消息列表
+const messages = computed(() => sessionQuery.data.value?.messages ?? []);
+const historyTurns = computed(() => buildChatHistoryTurns(messages.value));
+const activeHistoryTurnId = ref("");
 const modelOptions = computed(() => {
   const configuredModel = defaultProfile.value?.model;
   const remoteModels = modelsQuery.data.value?.models ?? [];
@@ -145,7 +172,6 @@ const modelOptions = computed(() => {
     : [configuredModel, ...remoteModels];
 });
 //#endregion
-//#region Watch
 watch(
   defaultProfile,
   (profile) => {
@@ -159,10 +185,54 @@ watch(sessionQuery.isError, (isError) => {
     toast.error("无法加载当前会话");
   }
 });
+watch(
+  historyTurns,
+  (turns) => {
+    if (!turns.some((turn) => turn.id === activeHistoryTurnId.value)) {
+      activeHistoryTurnId.value = turns[0]?.id ?? "";
+    }
+    void nextTick(syncActiveHistoryTurn);
+  },
+  { flush: "post" },
+);
 //#endregion
 //#region Event
 //#endregion
 //#region Function
+function isActiveHistoryTurn(item: ChatHistoryRailItem) {
+  return item.id === activeHistoryTurnId.value;
+}
+
+function syncActiveHistoryTurn(event?: Event) {
+  const viewport = event?.target as HTMLElement | undefined;
+  if (!viewport) return;
+  const viewportTop = viewport.getBoundingClientRect().top;
+  let closestTurnId = historyTurns.value[0]?.id ?? "";
+  let closestDistance = Number.POSITIVE_INFINITY;
+
+  for (const turn of historyTurns.value) {
+    const target = Array.from(
+      viewport.querySelectorAll<HTMLElement>("[data-message-id]"),
+    ).find((element) => element.dataset.messageId === turn.userMessageId);
+    if (!target) continue;
+    const distance = Math.abs(
+      target.getBoundingClientRect().top - viewportTop - 24,
+    );
+    if (distance < closestDistance) {
+      closestDistance = distance;
+      closestTurnId = turn.id;
+    }
+  }
+  activeHistoryTurnId.value = closestTurnId;
+}
+
+function scrollToHistoryTurn(item: ChatHistoryRailItem) {
+  scrollToMessage(item.userMessageId, {
+    behavior: "smooth",
+    align: "start",
+  });
+}
+
 async function submit() {
   const sessionId = selectedSessionId.value;
   const content = data.content.trim();

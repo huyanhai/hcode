@@ -22,6 +22,7 @@ export default [
     files: ['**/*.ts', '**/*.vue'],
     rules: {
       'no-undef': 'off',
+      "vue/html-indent": "off",
       "@typescript-eslint/no-unused-expressions": 'off',
       // Route and shadcn component filenames intentionally use single-word names.
       'vue/multi-word-component-names': 'off',

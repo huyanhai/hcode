@@ -38,6 +38,7 @@ declare module 'vue' {
     ButtonGroup: typeof import('./src/components/ui/button-group/ButtonGroup.vue')['default']
     ButtonGroupSeparator: typeof import('./src/components/ui/button-group/ButtonGroupSeparator.vue')['default']
     ButtonGroupText: typeof import('./src/components/ui/button-group/ButtonGroupText.vue')['default']
+    ChatHistoryRail: typeof import('./src/components/chat-history-rail/ChatHistoryRail.vue')['default']
     Checkbox: typeof import('./src/components/ui/checkbox/Checkbox.vue')['default']
     Dialog: typeof import('./src/components/ui/dialog/Dialog.vue')['default']
     DialogClose: typeof import('./src/components/ui/dialog/DialogClose.vue')['default']

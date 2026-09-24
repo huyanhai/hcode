@@ -26,4 +26,8 @@
   .no-scrollbar {
     @apply [scrollbar-width:none]! [&::-webkit-scrollbar]:hidden!;
   }
+
+  .shadow {
+    @apply shadow-[0px_0px_10px_rgba(0,0,0,0.05)]!;
+  }
 }

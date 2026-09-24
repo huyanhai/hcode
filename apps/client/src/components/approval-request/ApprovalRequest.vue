@@ -4,8 +4,11 @@
       <ShieldAlert class="size-4 text-amber-600" aria-hidden="true" />
       <span>需要审批</span>
     </div>
-    <p class="mt-2 text-muted-foreground">是否允许执行命令?</p>
+    <p class="mt-2 text-muted-foreground">
+      是否允许{{ operaName }}{{ input.path }}?
+    </p>
     <div
+      v-if="isCommand"
       class="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background px-2 py-1.5 text-xs text-foreground"
     >
       {{ commandText }}
@@ -30,6 +33,8 @@
 import { computed } from "vue";
 import { ShieldAlert } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
+import { TOOLS_NAME_MAPS } from "../response-progress/constants";
+import { ToolsName } from "../response-progress/types";
 
 const props = defineProps<{
   toolName: string;
@@ -47,6 +52,14 @@ const commandText = computed(() => {
   if (command === undefined) return "";
 
   return JSON.stringify(command, null, 2);
+});
+
+const isCommand = computed(() => {
+  return props.toolName === ToolsName.EXEC_COMMAND;
+});
+
+const operaName = computed(() => {
+  return TOOLS_NAME_MAPS[props.toolName];
 });
 
 const emit = defineEmits<{
