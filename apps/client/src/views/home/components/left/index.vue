@@ -33,6 +33,7 @@
             @edit-workspace="openEditWorkspaceDialog(item)"
             @archive-workspace="archiveWorkspace(item)"
             @delete-workspace="deleteWorkspace(item)"
+            @new-chat="startNewSessionBySpace(item)"
           >
             <p
               v-if="!sessionsByWorkspace[item.id]?.length"
@@ -51,7 +52,6 @@
                 <button
                   class="button-hover"
                   type="button"
-                  :aria-label="`归档${session.title}`"
                   :disabled="archiveSessionMutation.isPending.value"
                   @click.stop="archiveSessionMutation.mutate(session.id)"
                 >
@@ -109,7 +109,7 @@
               :aria-label="`删除文件夹 ${folderName(folder)}`"
               @click="removeFolder(index)"
             >
-              <X :size="ICON_SIZE" />
+              <X :size="ICON_SIZE + 4" />
             </button>
           </div>
           <Button
@@ -270,6 +270,11 @@ const archiveSessionMutation = useMutation({
   },
 });
 
+function startNewSessionBySpace(item: WorkspaceSummary) {
+  selectedWorkspaceId.value = item.id;
+  createWorkspaceSession(item.id);
+}
+
 function startNewSession() {
   if (selectedWorkspaceId.value) {
     void createWorkspaceSession(selectedWorkspaceId.value);
@@ -295,9 +300,10 @@ function openEditWorkspaceDialog(workspace: WorkspaceSummary) {
   workspaceDialogMode.value = "edit";
   editingWorkspaceId.value = workspace.id;
   workspaceDraft.name = workspace.name;
-  workspaceDraft.folders = (workspace.folders?.length
-    ? workspace.folders
-    : [{ path: workspace.path, isPrimary: true }]
+  workspaceDraft.folders = (
+    workspace.folders?.length
+      ? workspace.folders
+      : [{ path: workspace.path, isPrimary: true }]
   ).map((folder) => folder.path);
   workspaceDialogOpen.value = true;
 }
@@ -309,7 +315,11 @@ function archiveWorkspace(workspace: WorkspaceSummary) {
 
 function deleteWorkspace(workspace: WorkspaceSummary) {
   if (deleteWorkspaceMutation.isPending.value) return;
-  if (!window.confirm(`确定删除项目“${workspace.name}”吗？项目内的会话也会被删除。`))
+  if (
+    !window.confirm(
+      `确定删除项目“${workspace.name}”吗？项目内的会话也会被删除。`,
+    )
+  )
     return;
   deleteWorkspaceMutation.mutate(workspace.id);
 }

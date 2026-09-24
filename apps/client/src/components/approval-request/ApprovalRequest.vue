@@ -1,5 +1,5 @@
 <template>
-  <article class="mt-3 border border-border bg-muted/30 p-3 text-sm">
+  <article class="mt-3 border rounded-xl border-border bg-muted/30 p-3 text-sm">
     <div class="flex items-center gap-2 font-medium text-foreground">
       <ShieldAlert class="size-4 text-amber-600" aria-hidden="true" />
       <span>需要审批</span>

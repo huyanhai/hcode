@@ -12,6 +12,10 @@
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem @select="editWorkspace">
+              <Pencil :size="ICON_SIZE" />
+              编辑
+            </DropdownMenuItem>
             <DropdownMenuItem @select="archiveWorkspace">
               <Archive :size="ICON_SIZE" />
               归档
@@ -22,7 +26,7 @@
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <button @click.stop="editWorkspace" class="button-hover" type="button">
+        <button @click.stop="newChat" class="button-hover" type="button">
           <SquarePen :size="ICON_SIZE" />
         </button>
       </template>
@@ -40,6 +44,7 @@ import {
   FolderOpen,
   SquarePen,
   Trash2,
+  Pencil,
 } from "@lucide/vue";
 import { ICON_SIZE } from "@/constants";
 import {
@@ -54,6 +59,7 @@ const emit = defineEmits<{
   "edit-workspace": [];
   "archive-workspace": [];
   "delete-workspace": [];
+  "new-chat": [];
 }>();
 
 function editWorkspace() {
@@ -66,6 +72,10 @@ function archiveWorkspace() {
 
 function deleteWorkspace() {
   emit("delete-workspace");
+}
+
+function newChat() {
+  emit("new-chat");
 }
 //#region Props
 defineProps<{ title: string }>();
