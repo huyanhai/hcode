@@ -44,19 +44,29 @@
             <ActionsButton
               v-for="session in sessionsByWorkspace[item.id] ?? []"
               :key="session.id"
-              :class="session.id === selectedSessionId ? 'bg-muted' : ''"
+              :class="
+                cn(
+                  'group/session',
+                  session.id === selectedSessionId ? 'bg-muted' : '',
+                )
+              "
               @click="selectSession(item.id, session.id)"
             >
-              {{ session.title }}
+              <div class="pl-5">{{ session.title }}</div>
               <template #action>
                 <button
-                  class="button-hover"
+                  class="button-hover shrink-0 hidden group-hover/session:block"
                   type="button"
                   :disabled="archiveSessionMutation.isPending.value"
                   @click.stop="archiveSessionMutation.mutate(session.id)"
                 >
                   <Archive :size="ICON_SIZE" />
                 </button>
+                <LoaderCircle
+                  v-if="session.id === activeSessionId"
+                  class="animate-spin opacity-50 group-hover/session:hidden shrink-0 items-center justify-center pointer-events-none"
+                  :size="ICON_SIZE"
+                />
               </template>
             </ActionsButton>
           </FoldMenus>
@@ -137,6 +147,7 @@ import {
   X,
   Folder,
   FolderPlus,
+  LoaderCircle,
 } from "@lucide/vue";
 import Button from "@/components/ui/button/Button.vue";
 import Settings from "./settings/index.vue";
@@ -158,7 +169,11 @@ import {
 } from "@/lib/model-profiles-api";
 import { toast } from "vue-sonner";
 import { ICON_SIZE } from "@/constants";
-import { useSessionSelection } from "@/stores/session-selection";
+import {
+  useSessionActivity,
+  useSessionSelection,
+} from "@/stores/session-selection";
+import { cn } from "@/lib/utils.js";
 
 const showProject = ref(true);
 
@@ -191,6 +206,7 @@ const sessionsByWorkspace = computed<Record<string, SessionSummary[]>>(() => {
   }, {});
 });
 const selectedSessionId = useSessionSelection();
+const activeSessionId = useSessionActivity();
 
 const createWorkspaceMutation = useMutation({
   mutationFn: createWorkspace,

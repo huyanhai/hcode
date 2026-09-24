@@ -1,10 +1,14 @@
 <template>
-  <div class="flex flex-col h-full relative border-t bg-background text-foreground">
+  <div
+    class="flex flex-col h-full relative border-t bg-background text-foreground"
+  >
     <div class="h-12 shrink-0 border-b"></div>
-    <div class="relative p-4 h-1/2 flex-1 box-border w-full max-w-[800px] mx-auto flex flex-col">
+    <div
+      class="relative px-4 h-1/2 flex-1 box-border w-full max-w-[900px] mx-auto flex flex-col"
+    >
       <MessageScroller class="h-1/2 flex-1">
         <MessageScrollerViewport
-          class="no-scrollbar pb-10"
+          class="no-scrollbar pb-10 pt-4"
           @scroll="syncActiveHistoryTurn"
         >
           <MessageScrollerContent>
@@ -56,6 +60,7 @@
         </MessageScrollerButton>
       </MessageScroller>
       <Input
+        class="mb-4"
         v-model="data"
         :models="modelOptions"
         :sending="sending"
@@ -87,7 +92,10 @@ import {
   type ModelProfileSummary,
 } from "@/lib/model-profiles-api";
 import { toast } from "vue-sonner";
-import { useSessionSelection } from "@/stores/session-selection";
+import {
+  useSessionActivity,
+  useSessionSelection,
+} from "@/stores/session-selection";
 import Markdown from "../../../../components/markdown/index.vue";
 import { Ellipsis, MoveDown } from "@lucide/vue";
 import {
@@ -134,6 +142,7 @@ const defaultProfile = computed<ModelProfileSummary | undefined>(() => {
 //#endregion
 //#region Hooks
 const selectedSessionId = useSessionSelection();
+const activeSessionId = useSessionActivity();
 const queryClient = useQueryClient();
 // 查询会话
 const sessionQuery = useQuery<SessionDetail>({
@@ -239,6 +248,7 @@ async function submit() {
   if (!sessionId || !content || sending.value) return;
 
   sending.value = true;
+  activeSessionId.value = sessionId;
   const current = sessionQuery.data.value;
   const userMessageId = crypto.randomUUID();
   const assistantMessageId = crypto.randomUUID();
@@ -300,6 +310,7 @@ async function submit() {
   } finally {
     abortController = undefined;
     sending.value = false;
+    if (activeSessionId.value === sessionId) activeSessionId.value = "";
   }
 }
 
@@ -520,6 +531,7 @@ async function respondToApproval(
   if (!sessionId || respondingApprovalId.value) return;
   respondingApprovalId.value = approvalId;
   sending.value = true;
+  activeSessionId.value = sessionId;
   queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
     old
       ? {
@@ -567,6 +579,7 @@ async function respondToApproval(
     abortController = undefined;
     respondingApprovalId.value = undefined;
     sending.value = false;
+    if (activeSessionId.value === sessionId) activeSessionId.value = "";
   }
 }
 

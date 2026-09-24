@@ -17,6 +17,10 @@ async function createWindow(): Promise<void> {
     backgroundMaterial: isMac ? undefined : "mica",
     visualEffectState: "active",
     roundedCorners: true,
+    trafficLightPosition: {
+      y: 17,
+      x: 10,
+    },
     webPreferences: {
       preload: join(__dirname, "../preload/preload.cjs"),
       contextIsolation: true,
@@ -52,11 +56,14 @@ app
       },
     );
     session.defaultSession.setPermissionCheckHandler(() => false);
-    ipcMain.handle('workspace:select-directory', async (event) => {
-      const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
-        properties: ['openDirectory', 'createDirectory'],
-      });
-      return result.canceled ? null : result.filePaths[0] ?? null;
+    ipcMain.handle("workspace:select-directory", async (event) => {
+      const result = await dialog.showOpenDialog(
+        BrowserWindow.fromWebContents(event.sender)!,
+        {
+          properties: ["openDirectory", "createDirectory"],
+        },
+      );
+      return result.canceled ? null : (result.filePaths[0] ?? null);
     });
 
     Menu.setApplicationMenu(
