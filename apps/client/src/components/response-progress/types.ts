@@ -20,6 +20,10 @@ export type ResponseToolCall = {
   };
 };
 
+export type ResponseTimelineItem =
+  | { id: string; type: "text"; content: string }
+  | { id: string; type: "tool"; toolCall: ResponseToolCall };
+
 export enum ToolsName {
   LIST_FILE = "listFiles",
   READ_FILE = "readFile",
@@ -30,4 +34,5 @@ export enum ToolsName {
   GIT_STATUS = "gitStatus",
   GIT_DIFF = "gitDiff",
   GIT_LOG = "gitLog",
+  LIST_ADDITIONAL_FILES = "listAdditionalFiles",
 }

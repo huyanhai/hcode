@@ -17,6 +17,7 @@ export const TOOLS_NAME_ICON_MAPS: Record<string, Component> = {
   [ToolsName.GIT_DIFF]: SquareTerminal,
   [ToolsName.GIT_LOG]: SquareTerminal,
   [ToolsName.GIT_STATUS]: SquareTerminal,
+  [ToolsName.LIST_ADDITIONAL_FILES]: File,
 };
 
 export const TOOLS_NAME_MAPS: Record<string, string> = {

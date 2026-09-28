@@ -1,5 +1,6 @@
 import type {
   ResponseStreamStatus,
+  ResponseTimelineItem,
   ResponseToolCall,
 } from "@/components/response-progress";
 
@@ -62,6 +63,7 @@ export type SessionMessageSummary = {
   createdAt: string;
   reasoning?: string;
   toolCalls?: ResponseToolCall[];
+  timeline?: ResponseTimelineItem[];
   streamStatus?: ResponseStreamStatus;
   startedAt?: string;
   completedAt?: string;

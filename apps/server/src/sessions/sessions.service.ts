@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { basename } from 'node:path';
 import type { ServerResponse } from 'node:http';
 import {
   streamAgent,
@@ -271,6 +272,7 @@ export class SessionsService {
       { role: 'user', content },
     ];
     const startedAt = BigInt(Date.now());
+    const agentContext = this.createAgentContext(session.workspace.path, session.workspace.folders, input.fullAccess);
     let text = '';
     const toolCalls: MessageToolCall[] = [];
     let streamStatus: MessageStreamStatus = 'completed';
@@ -279,10 +281,7 @@ export class SessionsService {
     try {
       for await (const event of streamAgent(
         agentProfile,
-        {
-          workspaceRoot: session.workspace.path,
-          permissionMode: input.fullAccess ? 'full' : 'restricted',
-        },
+        agentContext,
         messages,
         {},
         abortSignal,
@@ -318,10 +317,7 @@ export class SessionsService {
         sessionId: id,
         messageId: assistantMessage.id,
         profile: agentProfile,
-        context: {
-          workspaceRoot: session.workspace.path,
-          permissionMode: input.fullAccess ? 'full' : 'restricted',
-        },
+        context: agentContext,
         continuation,
         approvals: {},
         text,
@@ -335,6 +331,47 @@ export class SessionsService {
       data: { updatedAt: BigInt(Date.now()) },
     });
     return { text, awaitingApproval };
+  }
+
+  private createAgentContext(
+    primaryPath: string,
+    folders: string | null,
+    fullAccess = false,
+  ): AgentContext {
+    const configured = this.parseWorkspaceFolders(folders, primaryPath);
+    const additionalRoots = configured.slice(1).map((path, index, paths) => ({
+      name: this.folderLabel(path, paths.slice(0, index)),
+      path,
+    }));
+    return {
+      workspaceRoot: primaryPath,
+      additionalRoots,
+      permissionMode: fullAccess ? 'full' : 'restricted',
+    };
+  }
+
+  private parseWorkspaceFolders(value: string | null, fallback: string): string[] {
+    try {
+      const parsed = JSON.parse(value ?? '');
+      if (Array.isArray(parsed)) {
+        const folders = [...new Set(
+          parsed
+            .filter((item): item is string => typeof item === 'string')
+            .map((item) => item.trim())
+            .filter(Boolean),
+        )];
+        if (folders.length) return folders;
+      }
+    } catch {
+      // Existing workspaces may not have a populated folders column.
+    }
+    return [fallback];
+  }
+
+  private folderLabel(path: string, previousPaths: string[]): string {
+    const base = basename(path) || path;
+    if (!previousPaths.some((previous) => (basename(previous) || previous) === base)) return base;
+    return path;
   }
 
   private async appendMessage(

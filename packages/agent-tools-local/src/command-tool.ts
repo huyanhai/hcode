@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createWorkspacePathResolver } from "./workspace.js";
+import { createWorkspacePathResolver, findWorkspaceRoot, type WorkspaceRoot } from "./workspace.js";
 
 export type CommandResult = { stdout: string; stderr: string; exitCode: number | null; timedOut: boolean };
 
@@ -25,4 +25,15 @@ export function executeWorkspaceCommand(context: { workspaceRoot: string }, comm
       resolve({ stdout, stderr, exitCode, timedOut });
     });
   });
+}
+
+export function executeAdditionalWorkspaceCommand(
+  context: { additionalRoots: WorkspaceRoot[] },
+  rootName: string,
+  command: string,
+  requestedCwd = ".",
+  timeoutMs = 30_000,
+): Promise<CommandResult> {
+  const root = findWorkspaceRoot(context.additionalRoots, rootName);
+  return executeWorkspaceCommand({ workspaceRoot: root.path }, command, requestedCwd, timeoutMs);
 }

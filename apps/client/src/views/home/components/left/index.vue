@@ -10,7 +10,7 @@
           <div class="text-sm text-muted-foreground flex gap-1 items-center">
             项目
             <ChevronDown :size="ICON_SIZE" v-if="showProject" />
-            <ChevronUp :size="ICON_SIZE" v-else />
+            <ChevronRight :size="ICON_SIZE" v-else />
           </div>
           <template #action>
             <button
@@ -141,7 +141,7 @@
 import { SquarePen } from "@respeak/lucide-motion-vue";
 import {
   ChevronDown,
-  ChevronUp,
+  ChevronRight,
   Plus,
   Archive,
   X,

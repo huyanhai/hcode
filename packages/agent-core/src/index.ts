@@ -15,18 +15,26 @@ export type {
 } from "./openai-stream-adapter";
 import {
   executeWorkspaceCommand,
+  executeAdditionalWorkspaceCommand,
   applyWorkspacePatch,
+  applyAdditionalWorkspacePatch,
   gitDiff,
   gitLog,
   gitStatus,
   listFiles,
+  listAdditionalFiles,
   readWorkspaceFile,
+  readAdditionalWorkspaceFile,
   searchWorkspaceFiles,
+  searchAdditionalWorkspaceFiles,
   writeWorkspaceFile,
+  writeAdditionalWorkspaceFile,
 } from "@hcode/agent-tools-local";
+import type { WorkspaceRoot } from "@hcode/agent-tools-local";
 
 export type AgentContext = {
   workspaceRoot: string;
+  additionalRoots?: WorkspaceRoot[];
   permissionMode?: "restricted" | "full";
 };
 export type ModelProfile = { id: string; name: string; provider: string; model: string; baseUrl: string; apiKey: string; isDefault: boolean; createdAt: number; updatedAt: number };
@@ -41,9 +49,17 @@ type ToolDefinition = {
 
 type FunctionCall = PendingToolCall;
 
-const instructions =
-  "You are a local coding agent. Work only inside the provided workspace. " +
-  "Use tools for workspace inspection and changes. Explain actions briefly and never claim a tool succeeded without its result.";
+function instructions(context: AgentContext): string {
+  const additional = context.additionalRoots ?? [];
+  const additionalInstruction = additional.length
+    ? ` Additional folders are available only on demand: ${additional.map((root) => `\"${root.name}\"`).join(", ")}. Keep using the default workspace tools for the primary folder. Use an additional-folder tool only when the user explicitly asks about one of these folders or its contents.`
+    : " No additional folders are configured.";
+  return (
+    "You are a local coding agent. Work only inside the provided workspace. " +
+    "Use tools for workspace inspection and changes. Explain actions briefly and never claim a tool succeeded without its result." +
+    additionalInstruction
+  );
+}
 
 function objectSchema(properties: Record<string, unknown>, required: string[] = []) {
   return { type: "object", properties, required, additionalProperties: false };
@@ -51,7 +67,7 @@ function objectSchema(properties: Record<string, unknown>, required: string[] = 
 
 function createTools(context: AgentContext): Record<string, ToolDefinition> {
   const requiresApproval = context.permissionMode !== "full";
-  return {
+  const tools: Record<string, ToolDefinition> = {
     listFiles: {
       description: "List files in the workspace.",
       parameters: objectSchema({ path: { type: "string", description: "Workspace-relative path." } }),
@@ -117,6 +133,49 @@ function createTools(context: AgentContext): Record<string, ToolDefinition> {
       execute: () => gitLog(context),
     },
   };
+  const additionalRoots = context.additionalRoots ?? [];
+  if (additionalRoots.length) {
+    const rootNames = additionalRoots.map((root) => root.name);
+    const rootProperty = {
+      type: "string",
+      enum: rootNames,
+      description: "Configured additional folder label. Use only when the user explicitly requests this folder.",
+    };
+    tools.listAdditionalFiles = {
+      description: "List files in a configured additional folder. Use only when the user explicitly asks to inspect that folder.",
+      parameters: objectSchema({ root: rootProperty, path: { type: "string", description: "Path relative to the selected additional folder." } }, ["root"]),
+      execute: (input) => listAdditionalFiles({ additionalRoots }, String(input.root), String(input.path ?? ".")),
+    };
+    tools.readAdditionalFile = {
+      description: "Read a UTF-8 file from a configured additional folder. Use only when the user explicitly asks for that folder or file.",
+      parameters: objectSchema({ root: rootProperty, path: { type: "string", description: "Path relative to the selected additional folder." } }, ["root", "path"]),
+      execute: (input) => readAdditionalWorkspaceFile({ additionalRoots }, String(input.root), String(input.path)),
+    };
+    tools.searchAdditionalFiles = {
+      description: "Search text in a configured additional folder. Use only when the user explicitly asks to search that folder.",
+      parameters: objectSchema({ root: rootProperty, query: { type: "string" }, path: { type: "string", description: "Path relative to the selected additional folder." } }, ["root", "query"]),
+      execute: (input) => searchAdditionalWorkspaceFiles({ additionalRoots }, String(input.root), String(input.query), String(input.path ?? ".")),
+    };
+    tools.writeAdditionalFile = {
+      description: "Write a UTF-8 file in a configured additional folder after user approval.",
+      parameters: objectSchema({ root: rootProperty, path: { type: "string" }, content: { type: "string" } }, ["root", "path", "content"]),
+      requiresApproval,
+      execute: (input) => writeAdditionalWorkspaceFile({ additionalRoots }, String(input.root), String(input.path), String(input.content)),
+    };
+    tools.applyAdditionalPatch = {
+      description: "Apply a unified diff to a file in a configured additional folder after user approval.",
+      parameters: objectSchema({ root: rootProperty, path: { type: "string" }, patch: { type: "string" } }, ["root", "path", "patch"]),
+      requiresApproval,
+      execute: (input) => applyAdditionalWorkspacePatch({ additionalRoots }, String(input.root), String(input.path), String(input.patch)),
+    };
+    tools.execAdditionalCommand = {
+      description: "Run a shell command in a configured additional folder after user approval.",
+      parameters: objectSchema({ root: rootProperty, command: { type: "string" }, cwd: { type: "string", description: "Path relative to the selected additional folder." }, timeoutMs: { type: "integer", minimum: 1000, maximum: 120000 } }, ["root", "command"]),
+      requiresApproval,
+      execute: (input) => executeAdditionalWorkspaceCommand({ additionalRoots }, String(input.root), String(input.command), String(input.cwd ?? "."), Number(input.timeoutMs ?? 30000)),
+    };
+  }
+  return tools;
 }
 
 function openaiTools(tools: Record<string, ToolDefinition>) {
@@ -194,7 +253,7 @@ export async function* streamAgent(
       if (!stepCalls.length) {
         const request = {
           model: profile.model,
-          instructions,
+          instructions: instructions(context),
           input: conversation as never,
           tools: openaiTools(tools) as never,
           reasoning: { summary: "auto" },

@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { createWorkspacePathResolver } from "./workspace.js";
+import { createWorkspacePathResolver, findWorkspaceRoot, type WorkspaceRoot } from "./workspace.js";
 
 export type FileToolContext = { workspaceRoot: string };
 export type FileChangeResult = {
@@ -117,4 +117,71 @@ export async function searchWorkspaceFiles(context: FileToolContext, query: stri
 
   await visit(root);
   return results.slice(0, 200);
+}
+
+export type AdditionalFileToolContext = {
+  additionalRoots: WorkspaceRoot[];
+};
+
+function additionalPath(root: WorkspaceRoot, requestedPath: string): string {
+  const normalized = requestedPath || ".";
+  return normalized === "." ? `${root.name}/` : `${root.name}/${normalized}`;
+}
+
+export async function listAdditionalFiles(
+  context: AdditionalFileToolContext,
+  rootName: string,
+  requestedPath = ".",
+): Promise<string[]> {
+  const root = findWorkspaceRoot(context.additionalRoots, rootName);
+  const resolvePath = createWorkspacePathResolver(root.path);
+  const directory = resolvePath(requestedPath, { mustExist: true });
+  const entries = await readdir(directory, { withFileTypes: true });
+  const prefix = additionalPath(root, requestedPath);
+  return entries
+    .map((entry) => `${prefix}${prefix.endsWith("/") ? "" : "/"}${entry.name}${entry.isDirectory() ? "/" : ""}`)
+    .sort();
+}
+
+export async function readAdditionalWorkspaceFile(
+  context: AdditionalFileToolContext,
+  rootName: string,
+  requestedPath: string,
+): Promise<{ path: string; content: string }> {
+  const root = findWorkspaceRoot(context.additionalRoots, rootName);
+  const path = createWorkspacePathResolver(root.path)(requestedPath, { mustExist: true });
+  return { path: additionalPath(root, requestedPath), content: await readFile(path, "utf8") };
+}
+
+export async function writeAdditionalWorkspaceFile(
+  context: AdditionalFileToolContext,
+  rootName: string,
+  requestedPath: string,
+  content: string,
+): Promise<FileChangeResult> {
+  const root = findWorkspaceRoot(context.additionalRoots, rootName);
+  const result = await writeWorkspaceFile({ workspaceRoot: root.path }, requestedPath, content);
+  return { ...result, path: additionalPath(root, requestedPath) };
+}
+
+export async function applyAdditionalWorkspacePatch(
+  context: AdditionalFileToolContext,
+  rootName: string,
+  requestedPath: string,
+  patch: string,
+): Promise<FileChangeResult> {
+  const root = findWorkspaceRoot(context.additionalRoots, rootName);
+  const result = await applyWorkspacePatch({ workspaceRoot: root.path }, requestedPath, patch);
+  return { ...result, path: additionalPath(root, requestedPath) };
+}
+
+export async function searchAdditionalWorkspaceFiles(
+  context: AdditionalFileToolContext,
+  rootName: string,
+  query: string,
+  requestedPath = ".",
+): Promise<Array<{ path: string; line: number; text: string }>> {
+  const root = findWorkspaceRoot(context.additionalRoots, rootName);
+  const results = await searchWorkspaceFiles({ workspaceRoot: root.path }, query, requestedPath);
+  return results.map((result) => ({ ...result, path: `${root.name}/${result.path}` }));
 }

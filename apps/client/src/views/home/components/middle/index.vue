@@ -33,20 +33,31 @@
                   :status="message.streamStatus"
                   :started-at="message.startedAt"
                   :completed-at="message.completedAt"
-                  :reasoning="message.reasoning"
-                  :tool-calls="message.toolCalls"
+                >
+                  <ResponseTimeline :items="processTimelineItems(message)" />
+                  <ApprovalRequest
+                    v-for="approval in pendingApprovals(message)"
+                    :key="approval.approvalId"
+                    :tool-name="approval.toolName"
+                    :input="approval.input"
+                    :busy="respondingApprovalId === approval.approvalId"
+                    @respond="
+                      respondToApproval(message.id, approval.approvalId, $event)
+                    "
+                  />
+                </ResponseProgress>
+                <ResponseTimeline
+                  v-else
+                  :items="timelineItems(message)"
                 />
-                <ApprovalRequest
-                  v-for="approval in pendingApprovals(message)"
-                  :key="approval.approvalId"
-                  :tool-name="approval.toolName"
-                  :input="approval.input"
-                  :busy="respondingApprovalId === approval.approvalId"
-                  @respond="
-                    respondToApproval(message.id, approval.approvalId, $event)
-                  "
+                <Markdown
+                  v-if="finalResponseContent(message)"
+                  class="text-base"
+                  :content="finalResponseContent(message)"
                 />
-                <Markdown :content="message.content" />
+                <Thinking v-if="latestReasoning(message.reasoning)" single-line>
+                  {{ latestReasoning(message.reasoning) }}
+                </Thinking>
               </template>
             </MessageScrollerItem>
           </MessageScrollerContent>
@@ -101,9 +112,12 @@ import { Ellipsis, MoveDown } from "@lucide/vue";
 import {
   ResponseProgress,
   type ResponseStreamStatus,
+  type ResponseTimelineItem,
   type ResponseToolCall,
 } from "@/components/response-progress";
+import { ResponseTimeline } from "@/components/response-timeline";
 import { ApprovalRequest } from "@/components/approval-request";
+import Thinking from "@/components/response-progress/markers/Thinking.vue";
 import {
   ChatHistoryRail,
   type ChatHistoryRailItem,
@@ -111,7 +125,6 @@ import {
 import { buildChatHistoryTurns } from "./chat-history";
 import {
   provideMessageScroller,
-  useMessageScroller,
 } from "@/components/ui/message-scroller";
 
 const data = reactive<SubmitPayload>({
@@ -269,6 +282,7 @@ async function submit() {
     content: "",
     reasoning: "",
     toolCalls: [] as ResponseToolCall[],
+    timeline: [] as ResponseTimelineItem[],
     streamStatus: "thinking" as ResponseStreamStatus,
     startedAt: String(Date.now()),
     sequence: userMessage.sequence + 1,
@@ -295,7 +309,9 @@ async function submit() {
       abortController.signal,
     );
     const detail = await openSession(sessionId);
-    queryClient.setQueryData(["session", sessionId], detail);
+    queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
+      mergeTransientAssistantState(detail, old, assistantMessageId),
+    );
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
   } catch (error) {
     const stopped = abortController?.signal.aborted ?? false;
@@ -351,7 +367,11 @@ function updateStreamMessage(
               : message.streamStatus,
         };
         if (event.type === "text") {
-          return { ...next, content: `${message.content}${event.text}` };
+          return {
+            ...next,
+            content: `${message.content}${event.text}`,
+            timeline: appendTimelineText(message.timeline, event.text),
+          };
         }
         if (event.type === "reasoning") {
           return {
@@ -360,30 +380,38 @@ function updateStreamMessage(
           };
         }
         if (event.type === "tool-call") {
+          const toolCall: ResponseToolCall = {
+            id: event.toolCallId,
+            toolName: event.toolName,
+            status: "in-progress",
+            input: event.input,
+            rawArguments: event.rawArguments,
+            contentOffset: message.content.length,
+          };
           return {
             ...next,
-            toolCalls: [
-              ...(message.toolCalls ?? []),
-              {
-                id: event.toolCallId,
-                toolName: event.toolName,
-                status: "in-progress",
-                input: event.input,
-                rawArguments: event.rawArguments,
-              },
-            ],
+            toolCalls: [...(message.toolCalls ?? []), toolCall],
+            timeline: appendTimelineTool(message.timeline, toolCall),
           };
         }
         if (event.type === "approval") {
+          const toolCalls = updateToolApproval(
+            message.toolCalls ?? [],
+            event.toolCallId,
+            event.toolName,
+            event.input,
+            event.approvalId,
+            message.content.length,
+          );
+          const toolCall = toolCalls.find(
+            (call) => call.id === event.toolCallId,
+          );
           return {
             ...next,
-            toolCalls: updateToolApproval(
-              message.toolCalls ?? [],
-              event.toolCallId,
-              event.toolName,
-              event.input,
-              event.approvalId,
-            ),
+            toolCalls,
+            timeline: toolCall
+              ? updateTimelineTool(message.timeline, toolCall)
+              : message.timeline,
           };
         }
         if (event.type === "tool-call-delta") {
@@ -396,29 +424,44 @@ function updateStreamMessage(
           } catch {
             input = undefined;
           }
+          const toolCalls = (message.toolCalls ?? []).map((toolCall) =>
+            toolCall.id === event.toolCallId
+              ? {
+                  ...toolCall,
+                  rawArguments,
+                  ...(input === undefined ? {} : { input }),
+                }
+              : toolCall,
+          );
+          const toolCall = toolCalls.find(
+            (call) => call.id === event.toolCallId,
+          );
           return {
             ...next,
-            toolCalls: (message.toolCalls ?? []).map((toolCall) =>
-              toolCall.id === event.toolCallId
-                ? {
-                    ...toolCall,
-                    rawArguments,
-                    ...(input === undefined ? {} : { input }),
-                  }
-                : toolCall,
-            ),
+            toolCalls,
+            timeline: toolCall
+              ? updateTimelineTool(message.timeline, toolCall)
+              : message.timeline,
           };
         }
         if (event.type === "tool-result") {
+          const toolCalls = updateToolCall(
+            message.toolCalls ?? [],
+            event.toolCallId,
+            event.toolName,
+            isToolResultFailure(event.output) ? "failed" : "completed",
+            event.output,
+            message.content.length,
+          );
+          const toolCall = toolCalls.find(
+            (call) => call.id === event.toolCallId,
+          );
           return {
             ...next,
-            toolCalls: updateToolCall(
-              message.toolCalls ?? [],
-              event.toolCallId,
-              event.toolName,
-              isToolResultFailure(event.output) ? "failed" : "completed",
-              event.output,
-            ),
+            toolCalls,
+            timeline: toolCall
+              ? updateTimelineTool(message.timeline, toolCall)
+              : message.timeline,
           };
         }
         if (event.type === "tool-progress") {
@@ -429,15 +472,21 @@ function updateStreamMessage(
               : event.status === "completed"
                 ? "completed"
                 : "in-progress";
+          const toolCalls = updateToolCall(
+            message.toolCalls ?? [],
+            id,
+            event.toolName,
+            status,
+            event.data,
+            message.content.length,
+          );
+          const toolCall = toolCalls.find((call) => call.id === id);
           return {
             ...next,
-            toolCalls: updateToolCall(
-              message.toolCalls ?? [],
-              id,
-              event.toolName,
-              status,
-              event.data,
-            ),
+            toolCalls,
+            timeline: toolCall
+              ? updateTimelineTool(message.timeline, toolCall)
+              : message.timeline,
           };
         }
         return next;
@@ -452,12 +501,46 @@ function updateToolCall(
   toolName: string,
   status: ResponseToolCall["status"],
   output?: unknown,
+  contentOffset?: number,
 ): ResponseToolCall[] {
   const existing = toolCalls.find((toolCall) => toolCall.id === id);
-  if (!existing) return [...toolCalls, { id, toolName, status, output }];
+  if (!existing) {
+    return [
+      ...toolCalls,
+      { id, toolName, status, output, contentOffset },
+    ];
+  }
   return toolCalls.map((toolCall) =>
     toolCall.id === id ? { ...toolCall, status, output } : toolCall,
   );
+}
+
+function mergeTransientAssistantState(
+  remote: SessionDetail,
+  current: SessionDetail | undefined,
+  messageId: string,
+): SessionDetail {
+  const localMessage = current?.messages.find(
+    (message) => message.id === messageId,
+  );
+  if (!localMessage) return remote;
+
+  return {
+    ...remote,
+    messages: remote.messages.map((message) =>
+      message.id === messageId
+        ? {
+            ...message,
+            ...(localMessage.reasoning
+              ? { reasoning: localMessage.reasoning }
+              : {}),
+            ...(localMessage.timeline?.length
+              ? { timeline: localMessage.timeline }
+              : {}),
+          }
+        : message,
+    ),
+  };
 }
 
 function updateToolApproval(
@@ -466,17 +549,143 @@ function updateToolApproval(
   toolName: string,
   input: unknown,
   approvalId: string,
+  contentOffset: number,
 ): ResponseToolCall[] {
   const approval = { id: approvalId, status: "pending" as const };
   const existing = toolCalls.find((toolCall) => toolCall.id === id);
   if (!existing) {
     return [
       ...toolCalls,
-      { id, toolName, status: "in-progress", input, approval },
+      {
+        id,
+        toolName,
+        status: "in-progress",
+        input,
+        contentOffset,
+        approval,
+      },
     ];
   }
   return toolCalls.map((toolCall) =>
     toolCall.id === id ? { ...toolCall, input, approval } : toolCall,
+  );
+}
+
+function timelineItems(
+  message: SessionDetail["messages"][number],
+): ResponseTimelineItem[] {
+  if (message.timeline) return message.timeline;
+
+  const toolCalls = [...(message.toolCalls ?? [])].sort(
+    (left, right) =>
+      (left.contentOffset ?? message.content.length) -
+        (right.contentOffset ?? message.content.length) ||
+      (message.toolCalls ?? []).indexOf(left) -
+        (message.toolCalls ?? []).indexOf(right),
+  );
+  const timeline: ResponseTimelineItem[] = [];
+  let cursor = 0;
+
+  for (const toolCall of toolCalls) {
+    const offset = Math.max(
+      cursor,
+      Math.min(message.content.length, toolCall.contentOffset ?? cursor),
+    );
+    if (offset > cursor) {
+      timeline.push({
+        id: `text:${cursor}`,
+        type: "text",
+        content: message.content.slice(cursor, offset),
+      });
+      cursor = offset;
+    }
+    timeline.push({ id: `tool:${toolCall.id}`, type: "tool", toolCall });
+  }
+
+  if (cursor < message.content.length) {
+    timeline.push({
+      id: `text:${cursor}`,
+      type: "text",
+      content: message.content.slice(cursor),
+    });
+  }
+  return timeline;
+}
+
+function processTimelineItems(
+  message: SessionDetail["messages"][number],
+): ResponseTimelineItem[] {
+  const items = timelineItems(message);
+  if (!isStreamFinished(message.streamStatus)) return items;
+
+  const lastToolIndex = items.findLastIndex((item) => item.type === "tool");
+  return lastToolIndex < 0 ? [] : items.slice(0, lastToolIndex + 1);
+}
+
+function finalResponseContent(
+  message: SessionDetail["messages"][number],
+): string {
+  if (!isStreamFinished(message.streamStatus)) return "";
+
+  const items = timelineItems(message);
+  const lastToolIndex = items.findLastIndex((item) => item.type === "tool");
+  return items
+    .slice(lastToolIndex + 1)
+    .flatMap((item) => (item.type === "text" ? [item.content] : []))
+    .join("");
+}
+
+function isStreamFinished(status: ResponseStreamStatus | undefined): boolean {
+  return ["completed", "failed", "stopped"].includes(status ?? "completed");
+}
+
+function latestReasoning(value: string | undefined): string {
+  const normalized = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const sentences = normalized
+    .split(/(?<=[。！？])\s*|(?<=[.!?])\s+/u)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+  return sentences.at(-1) ?? normalized;
+}
+
+function appendTimelineText(
+  timeline: ResponseTimelineItem[] | undefined,
+  text: string,
+): ResponseTimelineItem[] {
+  const items = timeline ?? [];
+  const previous = items.at(-1);
+  if (previous?.type === "text") {
+    return [
+      ...items.slice(0, -1),
+      { ...previous, content: `${previous.content}${text}` },
+    ];
+  }
+  return [...items, { id: crypto.randomUUID(), type: "text", content: text }];
+}
+
+function appendTimelineTool(
+  timeline: ResponseTimelineItem[] | undefined,
+  toolCall: ResponseToolCall,
+): ResponseTimelineItem[] {
+  return [
+    ...(timeline ?? []),
+    { id: `tool:${toolCall.id}`, type: "tool", toolCall },
+  ];
+}
+
+function updateTimelineTool(
+  timeline: ResponseTimelineItem[] | undefined,
+  toolCall: ResponseToolCall,
+): ResponseTimelineItem[] {
+  const items = timeline ?? [];
+  if (!items.some((item) => item.type === "tool" && item.toolCall.id === toolCall.id)) {
+    return appendTimelineTool(items, toolCall);
+  }
+  return items.map((item) =>
+    item.type === "tool" && item.toolCall.id === toolCall.id
+      ? { ...item, toolCall }
+      : item,
   );
 }
 
@@ -567,9 +776,9 @@ async function respondToApproval(
       (event) => updateStreamMessage(sessionId, messageId, event),
       abortController.signal,
     );
-    queryClient.setQueryData(
-      ["session", sessionId],
-      await openSession(sessionId),
+    const detail = await openSession(sessionId);
+    queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
+      mergeTransientAssistantState(detail, old, messageId),
     );
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
   } catch (error) {

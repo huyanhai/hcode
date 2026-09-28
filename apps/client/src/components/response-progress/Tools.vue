@@ -1,5 +1,5 @@
 <template>
-  <details :open="false" v-if="hasDetails">
+  <details :open="false" v-if="hasDetails" class="my-2">
     <summary class="flex cursor-pointer list-none items-center">
       <slot name="title" />
     </summary>

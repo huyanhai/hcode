@@ -5,6 +5,11 @@ export class WorkspaceBoundaryError extends Error {
   constructor(message: string) { super(message); this.name = "WorkspaceBoundaryError"; }
 }
 
+export type WorkspaceRoot = {
+  name: string;
+  path: string;
+};
+
 function isInside(root: string, candidate: string): boolean {
   const path = relative(root, candidate);
   return path === "" || (!path.startsWith("..") && !isAbsolute(path));
@@ -37,4 +42,17 @@ export function createWorkspacePathResolver(workspaceRoot: string) {
 export function assertWorkspace(workspaceRoot: string): void {
   accessSync(workspaceRoot, constants.R_OK | constants.W_OK);
   realpathSync(workspaceRoot);
+}
+
+export function findWorkspaceRoot(roots: WorkspaceRoot[], name: string): WorkspaceRoot {
+  const root = roots.find((candidate) => candidate.name === name);
+  if (!root) {
+    const available = roots.map((candidate) => candidate.name).join(", ");
+    throw new WorkspaceBoundaryError(
+      available
+        ? `Additional workspace folder is not configured: ${name}. Available folders: ${available}`
+        : `Additional workspace folder is not configured: ${name}`,
+    );
+  }
+  return root;
 }

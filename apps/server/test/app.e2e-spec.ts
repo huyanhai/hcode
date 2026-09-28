@@ -579,6 +579,113 @@ describe('AppController (e2e)', () => {
     }
   });
 
+  it('reads an additional folder only through its explicit folder tool', async () => {
+    const provider = await import('node:http');
+    let requestCount = 0;
+    const additionalCall = {
+      id: 'item_additional_1',
+      type: 'function_call',
+      call_id: 'call_additional_1',
+      name: 'readAdditionalFile',
+      arguments: JSON.stringify({ root: 'books', path: 'chapter.txt' }),
+    };
+    const server = provider.createServer(async (incoming, response) => {
+      let body = '';
+      for await (const chunk of incoming) body += chunk.toString();
+      const requestBody = JSON.parse(body) as {
+        instructions: string;
+        tools: Array<{ name: string }>;
+        input: unknown[];
+      };
+      expect(requestBody.instructions).toContain('"books"');
+      expect(requestBody.instructions).toContain('only when the user explicitly asks');
+      expect(requestBody.tools.some((tool) => tool.name === 'readAdditionalFile')).toBe(true);
+      response.writeHead(200, {
+        'cache-control': 'no-cache',
+        'content-type': 'text/event-stream',
+      });
+      if (requestCount++ === 0) {
+        response.write(
+          `data: ${JSON.stringify({ type: 'response.output_item.added', output_index: 0, item: additionalCall })}\n\n`,
+        );
+        response.end(
+          `data: ${JSON.stringify({
+            type: 'response.completed',
+            response: { id: 'resp_additional_1', output: [additionalCall] },
+          })}\n\n`,
+        );
+        return;
+      }
+      expect(JSON.stringify(requestBody.input)).toContain('chapter contents');
+      response.write(
+        `data: ${JSON.stringify({ type: 'response.output_text.delta', item_id: 'msg_additional_1', delta: 'book read' })}\n\n`,
+      );
+      response.end(
+        `data: ${JSON.stringify({
+          type: 'response.completed',
+          response: { id: 'resp_additional_2', output: [] },
+        })}\n\n`,
+      );
+    });
+    server.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server.once('listening', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('server did not start');
+
+    try {
+      const profile = await request(app.getHttpServer())
+        .post('/api/model-profiles/upsert')
+        .send({
+          name: 'Additional folder provider',
+          provider: 'openai',
+          model: 'additional-model',
+          baseUrl: `http://127.0.0.1:${address.port}/v1`,
+          apiKey: 'additional-key',
+          isDefault: true,
+        })
+        .expect(200);
+      const primaryPath = join(databaseDirectory, 'multi-folder-project');
+      const booksPath = join(databaseDirectory, 'books');
+      mkdirSync(primaryPath, { recursive: true });
+      mkdirSync(booksPath, { recursive: true });
+      const workspace = await request(app.getHttpServer())
+        .post('/api/workspaces/create')
+        .send({ name: '多目录测试项目', folders: [primaryPath, booksPath] })
+        .expect(200);
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(join(booksPath, 'chapter.txt'), 'chapter contents');
+      const session = await request(app.getHttpServer())
+        .post('/api/sessions/create')
+        .send({ workspaceId: workspace.body.data.id })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post(`/api/sessions/${session.body.data.id}/messages/stream`)
+        .send({ content: 'read the books folder', profileId: profile.body.data.id })
+        .expect(200);
+
+      const opened = await request(app.getHttpServer())
+        .get(`/api/sessions/${session.body.data.id}`)
+        .expect(200);
+      expect(opened.body.data.messages.at(-1)).toEqual(
+        expect.objectContaining({
+          content: 'book read',
+          toolCalls: [
+            expect.objectContaining({
+              toolName: 'readAdditionalFile',
+              input: { root: 'books', path: 'chapter.txt' },
+              output: { path: 'books/chapter.txt', content: 'chapter contents' },
+            }),
+          ],
+        }),
+      );
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
   it('pauses for approval and resumes the same assistant message', async () => {
     const provider = await import('node:http');
     let requestCount = 0;

@@ -120,8 +120,8 @@
           :aria-label="sending ? '停止生成' : '发送消息'"
           @click="sending ? emit('stop') : undefined"
         >
-          <ArrowUp v-if="!sending" />
-          <Square v-else class="fill-current" />
+          <Square v-if="sending" class="fill-current" />
+          <ArrowUp v-else />
         </InputGroupButton>
       </InputGroupAddon>
     </InputGroup>
