@@ -229,10 +229,6 @@ function handlePastedImage(file: File) {
 function addFiles(files: File[]) {
   const nextAttachments = files.map((file, index): AttachmentItem => {
     const id = crypto.randomUUID?.() ?? `${Date.now()}-${index}`;
-    const previewUrl = file.type.startsWith("image/")
-      ? URL.createObjectURL(file)
-      : undefined;
-    if (previewUrl) objectUrls.add(previewUrl);
 
     return {
       id,
@@ -241,7 +237,6 @@ function addFiles(files: File[]) {
       type: file.type,
       file,
       uploadState: "uploading",
-      previewUrl,
     };
   });
 
@@ -250,8 +245,23 @@ function addFiles(files: File[]) {
     ...nextAttachments,
   ];
   for (const attachment of nextAttachments) {
+    if (attachment.file.type.startsWith("image/")) {
+      void createImagePreview(attachment.id, attachment.file);
+    }
     void uploadSelectedAttachment(attachment.id, attachment.file);
   }
+}
+
+async function createImagePreview(id: string, file: File) {
+  const previewUrl = await new Promise<string | undefined>((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(file);
+  });
+  if (!previewUrl) return;
+  const attachment = modelData.value.attachments.find((item) => item.id === id);
+  if (attachment) attachment.previewUrl = previewUrl;
 }
 
 async function uploadSelectedAttachment(id: string, file: File) {
@@ -259,11 +269,6 @@ async function uploadSelectedAttachment(id: string, file: File) {
     const uploaded = await uploadAttachment(file);
     const attachment = modelData.value.attachments.find((item) => item.id === id);
     if (!attachment) return;
-    if (attachment.previewUrl && objectUrls.has(attachment.previewUrl)) {
-      URL.revokeObjectURL(attachment.previewUrl);
-      objectUrls.delete(attachment.previewUrl);
-    }
-    if (file.type.startsWith("image/")) attachment.previewUrl = uploaded.url;
     attachment.uploaded = uploaded;
     attachment.uploadState = "uploaded";
   } catch (error) {

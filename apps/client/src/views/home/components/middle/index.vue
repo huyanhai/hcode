@@ -22,6 +22,10 @@
             >
               <div v-if="message.role === 'user'" class="flex justify-end">
                 <Bubble variant="muted" align="end">
+                  <MessageAttachments
+                    v-if="message.attachments?.length"
+                    :attachments="message.attachments"
+                  />
                   <BubbleContent class="text-base">
                     <Markdown :content="message.content" />
                   </BubbleContent>
@@ -46,10 +50,7 @@
                     "
                   />
                 </ResponseProgress>
-                <ResponseTimeline
-                  v-else
-                  :items="timelineItems(message)"
-                />
+                <ResponseTimeline v-else :items="timelineItems(message)" />
                 <Markdown
                   v-if="finalResponseContent(message)"
                   class="text-base"
@@ -123,9 +124,8 @@ import {
   type ChatHistoryRailItem,
 } from "@/components/chat-history-rail";
 import { buildChatHistoryTurns } from "./chat-history";
-import {
-  provideMessageScroller,
-} from "@/components/ui/message-scroller";
+import { provideMessageScroller } from "@/components/ui/message-scroller";
+import MessageAttachments from "./MessageAttachments.vue";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -268,7 +268,8 @@ async function submit() {
     (!content && !attachments.length) ||
     attachments.length !== data.attachments.length ||
     sending.value
-  ) return;
+  )
+    return;
 
   sending.value = true;
   activeSessionId.value = sessionId;
@@ -520,10 +521,7 @@ function updateToolCall(
 ): ResponseToolCall[] {
   const existing = toolCalls.find((toolCall) => toolCall.id === id);
   if (!existing) {
-    return [
-      ...toolCalls,
-      { id, toolName, status, output, contentOffset },
-    ];
+    return [...toolCalls, { id, toolName, status, output, contentOffset }];
   }
   return toolCalls.map((toolCall) =>
     toolCall.id === id ? { ...toolCall, status, output } : toolCall,
@@ -694,7 +692,11 @@ function updateTimelineTool(
   toolCall: ResponseToolCall,
 ): ResponseTimelineItem[] {
   const items = timeline ?? [];
-  if (!items.some((item) => item.type === "tool" && item.toolCall.id === toolCall.id)) {
+  if (
+    !items.some(
+      (item) => item.type === "tool" && item.toolCall.id === toolCall.id,
+    )
+  ) {
     return appendTimelineTool(items, toolCall);
   }
   return items.map((item) =>
