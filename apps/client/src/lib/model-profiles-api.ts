@@ -59,6 +59,7 @@ export type SessionMessageSummary = {
   turnId: string | null;
   role: "user" | "assistant" | "tool" | "system";
   content: string;
+  attachments?: MessageAttachment[];
   sequence: number;
   createdAt: string;
   reasoning?: string;
@@ -67,6 +68,14 @@ export type SessionMessageSummary = {
   streamStatus?: ResponseStreamStatus;
   startedAt?: string;
   completedAt?: string;
+};
+
+export type MessageAttachment = {
+  id: string;
+  url: string;
+  name: string;
+  mimeType: string;
+  size: number;
 };
 
 export type SessionStreamEvent =
@@ -271,9 +280,21 @@ export function openSession(id: string): Promise<SessionDetail> {
   return request<SessionDetail>(`/api/sessions/${encodeURIComponent(id)}`);
 }
 
+export async function uploadAttachment(file: File): Promise<MessageAttachment> {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
+    method: 'POST',
+    body: form,
+  });
+  const body = (await response.json()) as ApiResponse<MessageAttachment>;
+  if (!response.ok || body.code !== '0') throw new Error(body.message || '附件上传失败');
+  return body.data;
+}
+
 export function sendSessionMessage(
   id: string,
-  input: { content: string; profileId?: string; model?: string; fullAccess?: boolean },
+  input: { content: string; attachments?: MessageAttachment[]; profileId?: string; model?: string; fullAccess?: boolean },
 ): Promise<SessionDetail> {
   return request<SessionDetail>(
     `/api/sessions/${encodeURIComponent(id)}/messages`,
@@ -286,7 +307,7 @@ export function sendSessionMessage(
 
 export async function streamSessionMessage(
   id: string,
-  input: { content: string; profileId?: string; model?: string; fullAccess?: boolean },
+  input: { content: string; attachments?: MessageAttachment[]; profileId?: string; model?: string; fullAccess?: boolean },
   onEvent: (event: SessionStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

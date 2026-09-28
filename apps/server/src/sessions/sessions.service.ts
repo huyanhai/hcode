@@ -18,6 +18,8 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import type {
   CreateSessionDto,
+  MessageAttachment,
+  MessageAttachmentDto,
   MessageSummary,
   MessageToolCall,
   MessageStreamStatus,
@@ -26,6 +28,7 @@ import type {
   SessionSummary,
 } from './sessions.dto';
 import { normalizeProviderBaseUrl } from '../model-profiles/base-url';
+import { FileStorageService } from '../file-storage/file-storage.service';
 
 type PendingApprovalRun = {
   sessionId: string;
@@ -43,7 +46,10 @@ type PendingApprovalRun = {
 export class SessionsService {
   private readonly pendingApprovals = new Map<string, PendingApprovalRun>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fileStorage: FileStorageService,
+  ) {}
 
   // 查询当前项目下的所有会话
   async list(workspaceId?: string): Promise<SessionSummary[]> {
@@ -243,12 +249,15 @@ export class SessionsService {
         });
     if (!profile) throw new BadRequestException('请先配置模型');
 
-    const content = input.content.trim();
+    const content = (input.content ?? '').trim();
+    const storedAttachments = this.normalizeAttachments(input.attachments ?? []);
+    if (!content && !storedAttachments.length)
+      throw new BadRequestException('消息内容或附件不能为空');
     const history = await this.prisma.message.findMany({
       where: { sessionId: id },
       orderBy: { sequence: 'asc' },
     });
-    await this.appendMessage(id, 'user', content);
+    await this.appendMessage(id, 'user', content, storedAttachments);
     const title =
       session.title === '新会话' ? this.makeTitle(content) : session.title;
     await this.prisma.session.update({
@@ -263,13 +272,20 @@ export class SessionsService {
       createdAt: Number(profile.createdAt),
       updatedAt: Number(profile.updatedAt),
     };
+    const historyMessages = await Promise.all(
+      history
+        .filter((message) => ['system', 'user', 'assistant'].includes(message.role))
+        .map(async (message) => ({
+          role: message.role,
+          content: message.content,
+          attachments: await this.prepareAttachments(
+            this.parseAttachments(message.attachments),
+          ),
+        })),
+    );
     const messages = [
-      ...history
-        .filter((message) =>
-          ['system', 'user', 'assistant'].includes(message.role),
-        )
-        .map((message) => ({ role: message.role, content: message.content })),
-      { role: 'user', content },
+      ...historyMessages,
+      { role: 'user', content, attachments: await this.prepareAttachments(storedAttachments) },
     ];
     const startedAt = BigInt(Date.now());
     const agentContext = this.createAgentContext(session.workspace.path, session.workspace.folders, input.fullAccess);
@@ -378,6 +394,7 @@ export class SessionsService {
     sessionId: string,
     role: string,
     content: string,
+    attachments: MessageAttachment[] = [],
   ) {
     const last = await this.prisma.message.findFirst({
       where: { sessionId },
@@ -389,6 +406,7 @@ export class SessionsService {
         sessionId,
         role,
         content,
+        attachments: attachments.length ? JSON.stringify(attachments) : null,
         sequence: (last?.sequence ?? 0) + 1,
         createdAt: BigInt(Date.now()),
       },
@@ -626,6 +644,7 @@ export class SessionsService {
     turnId: string | null;
     role: string;
     content: string;
+    attachments: string | null;
     sequence: number;
     createdAt: bigint;
     reasoning: string | null;
@@ -640,6 +659,9 @@ export class SessionsService {
       turnId: message.turnId,
       role: message.role,
       content: message.content,
+      ...(message.attachments
+        ? { attachments: this.parseAttachments(message.attachments) }
+        : {}),
       sequence: message.sequence,
       createdAt: message.createdAt.toString(),
       ...(message.toolCalls
@@ -662,6 +684,49 @@ export class SessionsService {
     } catch {
       return [];
     }
+  }
+
+  private parseAttachments(value: string | null | undefined): MessageAttachment[] {
+    if (!value) return [];
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as MessageAttachment[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private normalizeAttachments(attachments: MessageAttachmentDto[]): MessageAttachment[] {
+    if (!attachments.length) return [];
+    return attachments.map((attachment) => {
+      if (!this.fileStorage.isManagedUrl(attachment.url))
+        throw new BadRequestException('附件必须来自已配置的文件存储');
+      return {
+        id: attachment.id,
+        url: attachment.url,
+        name: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      };
+    });
+  }
+
+  private async prepareAttachments(
+    attachments: MessageAttachment[],
+  ): Promise<Array<MessageAttachment & { dataUrl?: string }>> {
+    return Promise.all(
+      attachments.map(async (attachment) => {
+        const response = await fetch(attachment.url);
+        if (!response.ok) {
+          throw new BadRequestException(`无法读取附件: ${attachment.name}`);
+        }
+        const bytes = Buffer.from(await response.arrayBuffer());
+        return {
+          ...attachment,
+          dataUrl: `data:${attachment.mimeType};base64,${bytes.toString('base64')}`,
+        };
+      }),
+    );
   }
 
   private isStreamStatus(value: string | null): value is MessageStreamStatus {

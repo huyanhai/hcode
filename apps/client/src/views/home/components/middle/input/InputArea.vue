@@ -30,7 +30,10 @@ const { disabled, placeholder } = defineProps<{
 }>();
 //#endregion
 //#region Emits
-const emit = defineEmits(["submit"]);
+const emit = defineEmits<{
+  submit: [];
+  "paste-image": [file: File];
+}>();
 //#endregion
 //#region Hooks
 //#endregion
@@ -59,6 +62,16 @@ function handleInput() {
 
 function handlePaste(event: ClipboardEvent) {
   if (disabled) return;
+
+  const imageFiles = Array.from(event.clipboardData?.items ?? [])
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+  if (imageFiles.length) {
+    event.preventDefault();
+    imageFiles.forEach((file) => emit("paste-image", file));
+    return;
+  }
 
   event.preventDefault();
   const text = event.clipboardData?.getData("text/plain") ?? "";

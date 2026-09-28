@@ -1,5 +1,5 @@
 <template>
-  <div class="max-w-full text-muted-foreground">
+  <div class="max-w-full text-muted-foreground group/agent">
     <div class="text-sm">
       <Thinking v-if="status === 'thinking'">正在思考</Thinking>
       <template v-else>
@@ -13,7 +13,7 @@
           <ChevronRight
             :class="
               cn(
-                'size-4 shrink-0 transition-transform',
+                'size-4 shrink-0 transition-transform group-hover/agent:visible invisible',
                 showDetails ? 'rotate-90' : '',
               )
             "

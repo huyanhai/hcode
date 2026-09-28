@@ -1,4 +1,25 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, ValidateNested } from 'class-validator';
+
+export class MessageAttachmentDto {
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @IsUrl()
+  url!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  mimeType!: string;
+
+  @IsInt()
+  size!: number;
+}
 
 export class CreateSessionDto {
   @IsString()
@@ -13,7 +34,7 @@ export class CreateSessionDto {
 
 export class SendMessageDto {
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   content!: string;
 
   @IsOptional()
@@ -28,6 +49,12 @@ export class SendMessageDto {
 
   @IsOptional()
   fullAccess?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MessageAttachmentDto)
+  attachments?: MessageAttachmentDto[];
 }
 
 export class RespondApprovalDto {
@@ -50,12 +77,21 @@ export type MessageSummary = {
   turnId: string | null;
   role: string;
   content: string;
+  attachments?: MessageAttachment[];
   sequence: number;
   createdAt: string;
   toolCalls?: MessageToolCall[];
   streamStatus?: MessageStreamStatus;
   startedAt?: string;
   completedAt?: string;
+};
+
+export type MessageAttachment = {
+  id: string;
+  url: string;
+  name: string;
+  mimeType: string;
+  size: number;
 };
 
 export type MessageStreamStatus =

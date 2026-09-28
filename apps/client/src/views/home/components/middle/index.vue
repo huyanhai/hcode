@@ -258,47 +258,60 @@ function scrollToHistoryTurn(item: ChatHistoryRailItem) {
 async function submit() {
   const sessionId = selectedSessionId.value;
   const content = data.content.trim();
-  if (!sessionId || !content || sending.value) return;
+  const attachments = data.attachments.flatMap((attachment) =>
+    attachment.uploadState === "uploaded" && attachment.uploaded
+      ? [attachment.uploaded]
+      : [],
+  );
+  if (
+    !sessionId ||
+    (!content && !attachments.length) ||
+    attachments.length !== data.attachments.length ||
+    sending.value
+  ) return;
 
   sending.value = true;
   activeSessionId.value = sessionId;
-  const current = sessionQuery.data.value;
-  const userMessageId = crypto.randomUUID();
-  const assistantMessageId = crypto.randomUUID();
-  const userMessage = {
-    id: userMessageId,
-    sessionId,
-    turnId: null,
-    role: "user" as const,
-    content,
-    sequence: (current?.messages.at(-1)?.sequence ?? 0) + 1,
-    createdAt: String(Date.now()),
-  };
-  const assistantMessage = {
-    id: assistantMessageId,
-    sessionId,
-    turnId: null,
-    role: "assistant" as const,
-    content: "",
-    reasoning: "",
-    toolCalls: [] as ResponseToolCall[],
-    timeline: [] as ResponseTimelineItem[],
-    streamStatus: "thinking" as ResponseStreamStatus,
-    startedAt: String(Date.now()),
-    sequence: userMessage.sequence + 1,
-    createdAt: String(Date.now()),
-  };
-  queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
-    old
-      ? { ...old, messages: [...old.messages, userMessage, assistantMessage] }
-      : old,
-  );
+  let assistantMessageId = "";
   try {
+    const current = sessionQuery.data.value;
+    const userMessageId = crypto.randomUUID();
+    assistantMessageId = crypto.randomUUID();
+    const userMessage = {
+      id: userMessageId,
+      sessionId,
+      turnId: null,
+      role: "user" as const,
+      content,
+      attachments,
+      sequence: (current?.messages.at(-1)?.sequence ?? 0) + 1,
+      createdAt: String(Date.now()),
+    };
+    const assistantMessage = {
+      id: assistantMessageId,
+      sessionId,
+      turnId: null,
+      role: "assistant" as const,
+      content: "",
+      reasoning: "",
+      toolCalls: [] as ResponseToolCall[],
+      timeline: [] as ResponseTimelineItem[],
+      streamStatus: "thinking" as ResponseStreamStatus,
+      startedAt: String(Date.now()),
+      sequence: userMessage.sequence + 1,
+      createdAt: String(Date.now()),
+    };
+    queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
+      old
+        ? { ...old, messages: [...old.messages, userMessage, assistantMessage] }
+        : old,
+    );
     abortController = new AbortController();
     await streamSessionMessage(
       sessionId,
       {
         content,
+        attachments,
         profileId: defaultProfile.value?.id,
         model: data.model || undefined,
         fullAccess: data.fullAccess,
@@ -315,11 +328,13 @@ async function submit() {
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
   } catch (error) {
     const stopped = abortController?.signal.aborted ?? false;
-    updateMessageStatus(
-      sessionId,
-      assistantMessageId,
-      stopped ? "stopped" : "failed",
-    );
+    if (assistantMessageId) {
+      updateMessageStatus(
+        sessionId,
+        assistantMessageId,
+        stopped ? "stopped" : "failed",
+      );
+    }
     if (!stopped) {
       toast.error(error instanceof Error ? error.message : "发送消息失败");
     }

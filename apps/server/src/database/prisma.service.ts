@@ -81,6 +81,7 @@ export class PrismaService
         turn_id TEXT,
         role TEXT NOT NULL,
         content TEXT NOT NULL,
+        attachments TEXT,
         reasoning TEXT,
         tool_calls TEXT,
         stream_status TEXT,
@@ -145,6 +146,7 @@ export class PrismaService
     const existing = new Set(columns.map((column) => column.name));
     const additions = [
       ['reasoning', 'TEXT'],
+      ['attachments', 'TEXT'],
       ['tool_calls', 'TEXT'],
       ['stream_status', 'TEXT'],
       ['started_at', 'BIGINT'],

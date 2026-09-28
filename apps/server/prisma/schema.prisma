@@ -55,6 +55,7 @@ model Message {
   turnId       String?  @map("turn_id")
   role         String
   content      String
+  attachments  String?
   reasoning    String?
   toolCalls    String?  @map("tool_calls")
   streamStatus String?  @map("stream_status")

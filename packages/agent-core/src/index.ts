@@ -40,6 +40,15 @@ export type AgentContext = {
 export type ModelProfile = { id: string; name: string; provider: string; model: string; baseUrl: string; apiKey: string; isDefault: boolean; createdAt: number; updatedAt: number };
 export type ApprovalDecisions = Record<string, boolean>;
 
+export type AgentAttachment = {
+  id: string;
+  url: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  dataUrl?: string;
+};
+
 type ToolDefinition = {
   description: string;
   parameters: Record<string, unknown>;
@@ -188,13 +197,35 @@ function openaiTools(tools: Record<string, ToolDefinition>) {
   }));
 }
 
-function inputMessages(messages: unknown[]): unknown[] {
+export function inputMessages(messages: unknown[]): unknown[] {
   return messages.map((message) => {
     if (!message || typeof message !== "object") return message;
     const value = message as Record<string, unknown>;
     const role = value.role === "system" ? "developer" : value.role;
-    return { role, content: [{ type: "input_text", text: String(value.content ?? "") }] };
-  });
+    const content: Array<Record<string, unknown>> = [];
+    const text = String(value.content ?? "");
+    if (text) content.push({ type: "input_text", text });
+    const attachments = Array.isArray(value.attachments) ? value.attachments : [];
+    for (const attachment of attachments) {
+      if (!attachment || typeof attachment !== "object") continue;
+      const file = attachment as Record<string, unknown>;
+      const url = String(file.url ?? "");
+      const dataUrl = typeof file.dataUrl === "string" ? file.dataUrl : "";
+      const mimeType = String(file.mimeType ?? "").toLowerCase();
+      const name = String(file.name ?? "attachment");
+      if (!url) continue;
+      if (mimeType.startsWith("image/")) {
+        content.push({ type: "input_image", image_url: dataUrl || url, detail: "auto" });
+      } else {
+        content.push(
+          dataUrl
+            ? { type: "input_file", file_data: dataUrl, filename: name, detail: "auto" }
+            : { type: "input_file", file_url: url, filename: name, detail: "auto" },
+        );
+      }
+    }
+    return content.length ? { role, content } : null;
+  }).filter(Boolean);
 }
 
 function itemCall(item: unknown): FunctionCall | null {

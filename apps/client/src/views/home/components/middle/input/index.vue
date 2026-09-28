@@ -24,6 +24,7 @@
           ref="inputAreaRef"
           v-model="modelData.content"
           @submit="handleSubmit"
+          @paste-image="handlePastedImage"
         />
       </div>
 
@@ -116,7 +117,7 @@
           variant="default"
           size="icon-sm"
           class="ml-1 button-full shrink-0"
-          :disabled="sending ? false : !canSubmit || disabled"
+          :disabled="sending ? false : !canSubmit || disabled || hasPendingUpload || hasUploadError"
           :aria-label="sending ? '停止生成' : '发送消息'"
           @click="sending ? emit('stop') : undefined"
         >
@@ -140,7 +141,8 @@ import {
   Square,
   Telescope,
 } from "@lucide/vue";
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import { uploadAttachment } from "@/lib/model-profiles-api";
 import Attachment, { type AttachmentItem } from "./AttachmentItem.vue";
 import Comment, { type InputComment } from "./Comment.vue";
 import InputArea from "./InputArea.vue";
@@ -186,6 +188,12 @@ const canSubmit = computed(() =>
     modelData.value.attachments.length || !!modelData.value.content.trim(),
   ),
 );
+const hasPendingUpload = computed(() =>
+  modelData.value.attachments.some((attachment) => attachment.uploadState === "uploading"),
+);
+const hasUploadError = computed(() =>
+  modelData.value.attachments.some((attachment) => attachment.uploadState === "error"),
+);
 //#endregion
 //#region Watch
 //#endregion
@@ -201,7 +209,24 @@ function handleFileChange(event: Event) {
   const input = event.target as HTMLInputElement;
   const files = input.files ? Array.from(input.files) : [];
   if (!files.length) return;
+  addFiles(files);
+  input.value = "";
+}
 
+function handlePastedImage(file: File) {
+  if (file.name) {
+    addFiles([file]);
+    return;
+  }
+  addFiles([
+    new File([file], `pasted-image-${Date.now()}.png`, {
+      type: file.type || "image/png",
+      lastModified: file.lastModified,
+    }),
+  ]);
+}
+
+function addFiles(files: File[]) {
   const nextAttachments = files.map((file, index): AttachmentItem => {
     const id = crypto.randomUUID?.() ?? `${Date.now()}-${index}`;
     const previewUrl = file.type.startsWith("image/")
@@ -214,6 +239,8 @@ function handleFileChange(event: Event) {
       name: file.name,
       size: file.size,
       type: file.type,
+      file,
+      uploadState: "uploading",
       previewUrl,
     };
   });
@@ -222,7 +249,29 @@ function handleFileChange(event: Event) {
     ...modelData.value.attachments,
     ...nextAttachments,
   ];
-  input.value = "";
+  for (const attachment of nextAttachments) {
+    void uploadSelectedAttachment(attachment.id, attachment.file);
+  }
+}
+
+async function uploadSelectedAttachment(id: string, file: File) {
+  try {
+    const uploaded = await uploadAttachment(file);
+    const attachment = modelData.value.attachments.find((item) => item.id === id);
+    if (!attachment) return;
+    if (attachment.previewUrl && objectUrls.has(attachment.previewUrl)) {
+      URL.revokeObjectURL(attachment.previewUrl);
+      objectUrls.delete(attachment.previewUrl);
+    }
+    if (file.type.startsWith("image/")) attachment.previewUrl = uploaded.url;
+    attachment.uploaded = uploaded;
+    attachment.uploadState = "uploaded";
+  } catch (error) {
+    const attachment = modelData.value.attachments.find((item) => item.id === id);
+    if (!attachment) return;
+    attachment.uploadState = "error";
+    attachment.uploadError = error instanceof Error ? error.message : "附件上传失败";
+  }
 }
 
 function removeAttachment(id: string) {
@@ -251,7 +300,7 @@ function selectTool(tool: "image" | "research" | "web-search") {
 }
 
 function handleSubmit() {
-  if (!canSubmit.value) return;
+  if (!canSubmit.value || hasPendingUpload.value || hasUploadError.value) return;
   emit("submit");
 
   nextTick(() => {
