@@ -1,6 +1,6 @@
 <template>
   <div class="flex justify-between items-center">
-    <div class="flex gap-2 pl-20">
+    <div :class="cn('flex gap-2', isDesktop && 'pl-20')">
       <Button
         variant="ghost"
         @click="left = !left"
@@ -38,6 +38,7 @@
 </template>
 <script lang="ts" setup>
 import Button from "@/components/ui/button/Button.vue";
+import { cn } from "@/lib/utils";
 import {
   PanelLeft,
   PanelRight,
@@ -50,6 +51,8 @@ import {
 const left = defineModel<boolean>("left");
 const right = defineModel<boolean>("right");
 const bottom = defineModel<boolean>("bottom");
+
+const isDesktop = computed(() => Boolean(window.desktop));
 
 //#region Props
 //#endregion
