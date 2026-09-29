@@ -26,13 +26,16 @@
               </ItemDescription>
             </ItemContent>
             <ItemActions>
-              <Badge
+              <Button
                 v-if="!profile.isDefault"
-                class="hover:bg-accent cursor-pointer"
+                type="button"
+                size="sm"
                 variant="outline"
+                :disabled="isSaving"
+                @click="setDefault(profile)"
               >
                 设为默认
-              </Badge>
+              </Button>
               <Button
                 type="button"
                 size="icon-sm"
@@ -104,22 +107,20 @@
     <Field>
       <FieldLabel>请求类型</FieldLabel>
       <FieldContent>
-        <div class="grid grid-cols-2 gap-2">
-          <Button
-            type="button"
-            :variant="draft.requestType === 'response' ? 'default' : 'outline'"
-            @click="draft.requestType = 'response'"
-          >
-            Response
-          </Button>
-          <Button
-            type="button"
-            :variant="draft.requestType === 'chat' ? 'default' : 'outline'"
-            @click="draft.requestType = 'chat'"
-          >
-            Chat
-          </Button>
-        </div>
+        <Select v-model="draft.requestType">
+          <SelectTrigger class="w-full">
+            <SelectValue placeholder="Select a fruit" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              :value="item"
+              v-for="item in requestTypeOptions"
+              :key="item"
+            >
+              {{ item }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </FieldContent>
     </Field>
     <Field>
@@ -144,6 +145,13 @@ import { Trash, Bolt } from "@lucide/vue";
 import { toast } from "vue-sonner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import GlobalDialog from "@/components/global-dialog/index.vue";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 import {
   deleteModelProfile,
@@ -174,6 +182,8 @@ const emptyDraft = (): ProfileDraft => ({
 });
 const showDialog = ref(false);
 
+const requestTypeOptions = ["response", "chat"];
+
 const draft = reactive<ProfileDraft>(emptyDraft());
 const queryClient = useQueryClient();
 const profilesQuery = useQuery({
@@ -188,6 +198,7 @@ const saveMutation = useMutation({
   onSuccess: () =>
     queryClient.invalidateQueries({ queryKey: ["model-profiles"] }),
 });
+const isSaving = computed(() => saveMutation.isPending.value);
 const deleteMutation = useMutation({
   mutationFn: deleteModelProfile,
   onSuccess: () =>
@@ -231,6 +242,23 @@ async function save() {
     toast.error(error instanceof Error ? error.message : "操作失败");
   }
 }
+
+async function setDefault(profile: ModelProfileSummary) {
+  try {
+    await saveMutation.mutateAsync({
+      id: profile.id,
+      name: profile.name,
+      provider: profile.provider,
+      model: profile.model,
+      requestType: profile.requestType ?? "response",
+      baseUrl: profile.baseUrl,
+      isDefault: true,
+    });
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "操作失败");
+  }
+}
+
 async function remove(id: string) {
   try {
     await deleteMutation.mutateAsync(id);

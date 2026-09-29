@@ -318,6 +318,9 @@ const modelsQuery = useQuery({
   enabled: computed(() => Boolean(defaultProfile.value?.id)),
   retry: false,
 });
+onActivated(() => {
+  void profilesQuery.refetch();
+});
 //#endregion
 //#region Watch
 //#region Computed
@@ -342,8 +345,13 @@ const modelOptions = computed(() => {
 //#endregion
 watch(
   defaultProfile,
-  (profile) => {
-    if (profile && !data.model) data.model = profile.model;
+  (profile, previousProfile) => {
+    if (!profile) return;
+    const currentModel = data.model.trim();
+    const previousDefaultModel = previousProfile?.model ?? "";
+    if (!currentModel || currentModel === previousDefaultModel) {
+      data.model = profile.model;
+    }
   },
   { immediate: true },
 );

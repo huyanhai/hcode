@@ -1,7 +1,11 @@
 <template>
   <div class="flex justify-between items-center">
     <div class="flex gap-2 pl-20">
-      <Button variant="ghost" @click="left = !left" class="button button-hover">
+      <Button
+        variant="ghost"
+        @click="left = !left"
+        class="button button-hover no-drag"
+      >
         <PanelLeft v-if="left" />
         <PanelLeftOpen v-else />
       </Button>
@@ -15,7 +19,7 @@
     <div class="flex gap-2">
       <Button
         variant="ghost"
-        class="button button-hover"
+        class="button button-hover no-drag"
         @click="bottom = !bottom"
       >
         <PanelBottom v-if="bottom" />
@@ -23,7 +27,7 @@
       </Button>
       <Button
         variant="ghost"
-        class="button button-hover"
+        class="button button-hover no-drag"
         @click="right = !right"
       >
         <PanelRight v-if="right" />
