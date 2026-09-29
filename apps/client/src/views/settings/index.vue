@@ -1,15 +1,15 @@
 <template>
   <div class="flex h-dvh min-h-0 flex-col bg-background text-foreground">
     <div class="flex min-h-0 flex-1">
-      <aside class="flex w-56 shrink-0 flex-col border-r bg-muted/20">
+      <aside class="flex w-56 shrink-0 flex-col border-r bg-muted/20 pt-10">
         <div class="px-2 pb-5">
-          <Button class="menu-button" variant="ghost" @click="goBack">
+          <Button class="menu-button no-drag" variant="ghost" @click="goBack">
             <ArrowLeft :size="16" />
             返回应用
           </Button>
         </div>
         <nav class="px-2" aria-label="设置菜单">
-          <Button class="menu-button" variant="ghost">
+          <Button class="menu-button no-drag" variant="ghost">
             <Settings2 :size="16" />
             模型配置
           </Button>

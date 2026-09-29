@@ -39,8 +39,6 @@
 <script lang="ts" setup>
 import Button from "@/components/ui/button/Button.vue";
 import {
-  ArrowLeft,
-  ArrowRight,
   PanelLeft,
   PanelRight,
   PanelRightOpen,

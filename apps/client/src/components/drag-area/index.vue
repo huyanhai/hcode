@@ -26,8 +26,8 @@
 .drag-area {
   position: fixed;
   inset: 0 0 auto;
-  z-index: 0;
-  height: 3rem;
+  z-index: 20;
+  height: 2rem;
   user-select: none;
   -webkit-app-region: drag;
 }
