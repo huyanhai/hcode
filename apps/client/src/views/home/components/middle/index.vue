@@ -11,7 +11,7 @@
         <MessageScrollerViewport
           class="relative no-scrollbar pb-10 pt-4"
           @scroll="handleViewportScroll"
-          @click="handleViewportClick"
+          @pointerdown="handleViewportPointerDown"
         >
           <MessageScrollerContent>
             <MessageScrollerItem
@@ -91,7 +91,7 @@
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        style="transform: scale(0.8)"
+                        style="transform: scale(0.9)"
                         @click="copyMessage(message.content)"
                       >
                         <Copy />
@@ -99,7 +99,7 @@
                       <Button
                         size="icon-sm"
                         variant="ghost"
-                        style="transform: scale(0.8)"
+                        style="transform: scale(0.9)"
                         v-if="message.id === lastUserMessageId && !sending"
                         @click="startEdit(message)"
                       >
@@ -146,6 +146,7 @@
           </MessageScrollerContent>
           <div
             v-if="selectionMenu"
+            data-selection-menu
             class="absolute z-50"
             :style="{
               left: `${selectionMenu.x}px`,
@@ -280,7 +281,7 @@ const messagePanelRef = ref<HTMLElement>();
 
 const { scrollToMessage } = provideMessageScroller({
   autoScroll: true,
-  defaultScrollPosition: "last-anchor",
+  defaultScrollPosition: "end",
 }).context;
 
 const defaultProfile = computed<ModelProfileSummary | undefined>(() => {
@@ -400,11 +401,17 @@ function handleViewportScroll(event: Event) {
   updateCommentEditorPosition(viewport);
 }
 
-function handleViewportClick(event: MouseEvent) {
-  if (!commentEditor.value) return;
+function handleViewportPointerDown(event: PointerEvent) {
   const target = event.target as Element | null;
-  if (target?.closest("[data-comment-editor], [data-comment-id]")) return;
-  closeCommentEditor();
+  if (
+    target?.closest(
+      "[data-comment-editor], [data-comment-id], [data-selection-menu]",
+    )
+  )
+    return;
+
+  if (commentEditor.value) closeCommentEditor();
+  if (selectionMenu.value) selectionMenu.value = undefined;
 }
 
 function scrollToHistoryTurn(item: ChatHistoryRailItem) {
@@ -586,12 +593,13 @@ function handleMessageSelection(event: MouseEvent, messageId: string) {
   const position = viewportPosition(rect, viewport);
   selectionMenu.value = {
     x: position.x,
-    y: position.y + 8,
+    y: position.y,
     messageId,
     text,
     startOffset: selectionOffset(root, range.startContainer, range.startOffset),
     endOffset: selectionOffset(root, range.endContainer, range.endOffset),
   };
+  void nextTick(() => updateSelectionMenuPosition(viewport));
 }
 
 function selectionOffset(root: HTMLElement, container: Node, offset: number) {
@@ -654,9 +662,9 @@ function viewportPosition(
   rect: DOMRect,
   viewport: HTMLElement,
   top = rect.bottom,
+  width = 328,
 ) {
   const viewportRect = viewport.getBoundingClientRect();
-  const width = 328;
   return {
     x: Math.max(
       8 + viewport.scrollLeft,
@@ -676,13 +684,14 @@ function editorPosition(
   rect: DOMRect,
   viewport: HTMLElement,
   editorHeight = 0,
+  editorWidth = 320,
 ) {
   const viewportRect = viewport.getBoundingClientRect();
   const top =
     rect.bottom + editorHeight + 8 > viewportRect.bottom
       ? rect.top - editorHeight - 8
       : rect.bottom + 8;
-  return viewportPosition(rect, viewport, top);
+  return viewportPosition(rect, viewport, top, editorWidth);
 }
 
 function messageViewport() {
@@ -710,6 +719,7 @@ function updateCommentEditorPosition(viewport: HTMLElement) {
     markerRect,
     viewport,
     editorElement?.offsetHeight ?? 0,
+    editorElement?.offsetWidth ?? 320,
   );
   editor.x = position.x;
   editor.y = position.y;
@@ -724,9 +734,21 @@ function updateSelectionMenuPosition(viewport: HTMLElement) {
   if (!root) return;
   const range = createRangeFromOffsets(root, menu.startOffset, menu.endOffset);
   if (!range) return;
-  const position = viewportPosition(range.getBoundingClientRect(), viewport);
+  const menuElement = viewport.querySelector<HTMLElement>(
+    "[data-selection-menu]",
+  );
+  const rect = range.getBoundingClientRect();
+  const menuWidth = menuElement?.offsetWidth ?? 200;
+  const menuHeight = menuElement?.offsetHeight ?? 40;
+  const viewportRect = viewport.getBoundingClientRect();
+  const spaceBelow = viewportRect.bottom - rect.bottom;
+  const spaceAbove = rect.top - viewportRect.top;
+  const showAbove =
+    spaceBelow < menuHeight + 8 && spaceAbove >= menuHeight + 8;
+  const top = showAbove ? rect.top - menuHeight - 8 : rect.bottom + 8;
+  const position = viewportPosition(rect, viewport, top, menuWidth);
   menu.x = position.x;
-  menu.y = position.y + 8;
+  menu.y = position.y;
 }
 
 function createRangeFromOffsets(

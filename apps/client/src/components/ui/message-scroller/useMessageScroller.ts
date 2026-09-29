@@ -397,6 +397,7 @@ function createEngine(props: MessageScrollerProviderProps) {
   let spacerGap = 0
   let spacerHeight = 0
   let mode: Mode = autoScroll() ? "following-bottom" : "free-scrolling"
+  let followsBottom = autoScroll()
   let streamingTurn: HTMLElement | null = null
   let firstItem: HTMLElement | null = null
   let itemCount = 0
@@ -446,6 +447,7 @@ function createEngine(props: MessageScrollerProviderProps) {
       && !autoscrolling.value
     ) {
       mode = "free-scrolling"
+      followsBottom = false
     }
   }
 
@@ -551,6 +553,7 @@ function createEngine(props: MessageScrollerProviderProps) {
     setSpacerHeight(0)
     streamingTurn = null
     mode = "free-scrolling"
+    followsBottom = false
     scrollTo(0, { behavior })
     scheduleVisibilitySync()
     return true
@@ -562,6 +565,7 @@ function createEngine(props: MessageScrollerProviderProps) {
     setSpacerHeight(0)
     streamingTurn = null
     mode = autoScroll() ? "following-bottom" : "free-scrolling"
+    followsBottom = autoScroll()
     scrollTo(maxScrollTop(viewport), { autoscrolling: true, behavior })
     scheduleVisibilitySync()
     return true
@@ -593,6 +597,7 @@ function createEngine(props: MessageScrollerProviderProps) {
     }))
     prependRestore = { element, viewportTop: getRelativeTop(element, viewport) }
     mode = keepPreviousPeek ? "anchored-to-message" : "settling-jump"
+    followsBottom = false
     streamingTurn = keepPreviousPeek ? element : null
     scrollTo(targetScrollTop, { behavior })
     scheduleVisibilitySync()
@@ -728,6 +733,14 @@ function createEngine(props: MessageScrollerProviderProps) {
       scheduleVisibilitySync()
       return
     }
+    // Streaming state changes (approval, failure, completion) can replace
+    // descendants without adding a message. When the reader is following the
+    // live edge, keep that edge instead of treating an anchor as a navigation
+    // target and jumping it to the top of the viewport.
+    if (followsBottom && autoScroll()) {
+      scrollToEnd({ behavior: "auto" })
+      return
+    }
     const previousIndex = previousFirst ? children.indexOf(previousFirst) : -1
     if (preserveScrollOnPrepend && previousIndex > 0) {
       applyPrependRestore()
@@ -757,13 +770,8 @@ function createEngine(props: MessageScrollerProviderProps) {
         return
       }
     }
-    if (mode === "following-bottom" && autoScroll()) {
-      scrollToEnd({ behavior: "auto" })
-    }
-    else {
-      commitScrollState()
-      scheduleVisibilitySync()
-    }
+    commitScrollState()
+    scheduleVisibilitySync()
   }
 
   function handleContentChange() {
@@ -780,7 +788,7 @@ function createEngine(props: MessageScrollerProviderProps) {
   }
 
   function handleResize() {
-    if (mode === "following-bottom" && autoScroll()) {
+    if (followsBottom && autoScroll()) {
       scrollToEnd({ behavior: "auto" })
       return
     }
@@ -880,6 +888,11 @@ function createEngine(props: MessageScrollerProviderProps) {
   // --- user intent + element setters -----------------------------------------
 
   function userScrollIntent() {
+    const atBottom = viewport
+      ? maxScrollTop(viewport) - viewport.scrollTop <= scrollEdgeThreshold()
+      : false
+    if (atBottom)
+      return
     if (
       mode === "following-bottom"
       || mode === "anchored-to-message"
@@ -887,6 +900,7 @@ function createEngine(props: MessageScrollerProviderProps) {
     ) {
       streamingTurn = null
       mode = "free-scrolling"
+      followsBottom = false
     }
   }
 
@@ -918,10 +932,12 @@ function createEngine(props: MessageScrollerProviderProps) {
   }
 
   function onAutoScrollChange() {
-    if (autoScroll() && mode === "following-bottom" && itemCount > 0) {
+    if (autoScroll() && followsBottom && itemCount > 0) {
       scrollToEnd({ behavior: "auto" })
       return
     }
+    if (!autoScroll())
+      followsBottom = false
     commitScrollState()
   }
 

@@ -74,7 +74,9 @@ function escapeHtml(value: string) {
 function decorateAnnotations() {
   const root = rootRef.value;
   if (!root) return;
-  clearAnnotationMarkers(root);
+  // Rebuild from the unannotated HTML so repeated reactive updates never nest
+  // stale markers inside newly-created markers.
+  root.innerHTML = renderedMarkdown.value;
   if (!props.annotations?.length) return;
 
   for (const annotation of props.annotations) {
@@ -94,17 +96,6 @@ function decorateAnnotations() {
       marker.append(selected);
       void after;
     }
-  }
-}
-
-function clearAnnotationMarkers(root: HTMLElement) {
-  let marker = root.querySelector<HTMLElement>("mark[data-comment-id]");
-  while (marker) {
-    const parent = marker.parentNode;
-    if (!parent) return;
-    while (marker.firstChild) parent.insertBefore(marker.firstChild, marker);
-    parent.removeChild(marker);
-    marker = root.querySelector<HTMLElement>("mark[data-comment-id]");
   }
 }
 
