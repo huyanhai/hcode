@@ -1,9 +1,9 @@
 <template>
   <div
-    class="box-border w-full min-w-0 rounded-full border bg-background p-2 shadow-lg flex items-center"
+    class="box-border w-full min-w-0 rounded-full border bg-background p-2 shadow flex items-center"
   >
     <input
-      ref="textareaRef"
+      ref="inputRef"
       v-model="content"
       class="text-sm bg-none flex-1 h-6 outline-0 ml-2"
       placeholder="输入评论..."
@@ -12,9 +12,6 @@
     <Button size="icon-sm" class="rounded-full" @click="confirm">
       <Check />
     </Button>
-    <div class="flex justify-end gap-2">
-      <!-- <Button variant="ghost" size="sm" @click="emit('cancel')">取消</Button> -->
-    </div>
   </div>
 </template>
 
@@ -33,11 +30,11 @@ const emit = defineEmits<{
 }>();
 
 const content = ref(props.initialContent ?? "");
-const textareaRef = ref<InstanceType<typeof HTMLInputElement>>();
+const inputRef = useTemplateRef<HTMLInputElement>("inputRef");
 
 function confirm() {
   emit("confirm", content.value.trim());
 }
 
-onMounted(() => nextTick(() => textareaRef.value?.$el?.focus()));
+onMounted(() => nextTick(() => inputRef.value?.focus()));
 </script>

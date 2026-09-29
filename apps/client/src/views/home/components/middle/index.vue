@@ -11,6 +11,7 @@
         <MessageScrollerViewport
           class="relative no-scrollbar pb-10 pt-4"
           @scroll="handleViewportScroll"
+          @click="handleViewportClick"
         >
           <MessageScrollerContent>
             <MessageScrollerItem
@@ -65,17 +66,28 @@
                       v-if="message.attachments?.length"
                       :attachments="message.attachments"
                     />
+                    <div
+                      class="flex justify-end py-1"
+                      v-if="message.comments?.length"
+                    >
+                      <Comment align="end" :readonly="true" :comments="message.comments" />
+                    </div>
                     <BubbleContent class="text-base">
                       <Markdown
                         :content="message.content"
                         :annotations="commentsForMessage(message.id)"
-                        @annotation-click="(id, event) => openCommentAtMarker(message.id, id, event)"
+                        @annotation-click="
+                          (id, event) =>
+                            openCommentAtMarker(message.id, id, event)
+                        "
                       />
                     </BubbleContent>
                     <div
                       class="mt-1 flex items-center justify-end text-xs text-muted-foreground"
                     >
-                      <span class="mr-2">{{ formatMessageTime(message.createdAt) }}</span>
+                      <span class="mr-2">{{
+                        formatMessageTime(message.createdAt)
+                      }}</span>
                       <Button
                         size="icon-sm"
                         variant="ghost"
@@ -122,7 +134,9 @@
                   class="text-base"
                   :content="finalResponseContent(message)"
                   :annotations="commentsForMessage(message.id)"
-                  @annotation-click="(id, event) => openCommentAtMarker(message.id, id, event)"
+                  @annotation-click="
+                    (id, event) => openCommentAtMarker(message.id, id, event)
+                  "
                 />
                 <Thinking v-if="latestReasoning(message.reasoning)" single-line>
                   {{ latestReasoning(message.reasoning) }}
@@ -133,7 +147,10 @@
           <div
             v-if="selectionMenu"
             class="absolute z-50"
-            :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
+            :style="{
+              left: `${selectionMenu.x}px`,
+              top: `${selectionMenu.y}px`,
+            }"
           >
             <Button size="sm" variant="outline" @click="openSelectionComment">
               <MessageSquare class="size-4" />
@@ -144,7 +161,11 @@
             v-if="commentEditor"
             data-comment-editor
             class="absolute z-50 w-80 max-w-[calc(100vw-1rem)]"
-            :style="{ left: `${commentEditor.x}px`, top: `${commentEditor.y}px` }"
+            :style="{
+              left: `${commentEditor.x}px`,
+              top: `${commentEditor.y}px`,
+            }"
+            @click.stop
           >
             <CommentEditor
               :selected-text="commentEditor.selectedText"
@@ -222,6 +243,7 @@ import MessageAttachments from "./MessageAttachments.vue";
 import InputArea from "./input/InputArea.vue";
 import CommentEditor from "./input/CommentEditor.vue";
 import { Button } from "@/components/ui/button";
+import Comment from "./input/Comment.vue";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -251,7 +273,6 @@ const commentEditor = ref<{
   selectedText: string;
   initialContent?: string;
   editingId?: string;
-  draft?: boolean;
   startOffset?: number;
   endOffset?: number;
 }>();
@@ -379,6 +400,13 @@ function handleViewportScroll(event: Event) {
   updateCommentEditorPosition(viewport);
 }
 
+function handleViewportClick(event: MouseEvent) {
+  if (!commentEditor.value) return;
+  const target = event.target as Element | null;
+  if (target?.closest("[data-comment-editor], [data-comment-id]")) return;
+  closeCommentEditor();
+}
+
 function scrollToHistoryTurn(item: ChatHistoryRailItem) {
   scrollToMessage(item.userMessageId, {
     behavior: "smooth",
@@ -489,7 +517,10 @@ function startEdit(message: SessionMessage) {
 }
 
 function commentsForMessage(messageId: string) {
-  const byId = new Map<string, NonNullable<SessionMessage["comments"]>[number]>();
+  const byId = new Map<
+    string,
+    NonNullable<SessionMessage["comments"]>[number]
+  >();
   for (const message of messages.value) {
     for (const comment of message.comments ?? []) {
       if (comment.messageId === messageId) byId.set(comment.id, comment);
@@ -588,7 +619,6 @@ function openSelectionComment() {
     messageId: selected.messageId,
     selectedText: selected.text,
     editingId: id,
-    draft: true,
     startOffset: selected.startOffset,
     endOffset: selected.endOffset,
   };
@@ -604,10 +634,9 @@ function editInputComment(id: string) {
   );
   const markerRect = marker?.getBoundingClientRect();
   const viewport = messageViewport();
-  const position =
-    markerRect
-      ? editorPosition(markerRect, viewport)
-      : { x: 8 + viewport.scrollLeft, y: 8 + viewport.scrollTop };
+  const position = markerRect
+    ? editorPosition(markerRect, viewport)
+    : { x: 8 + viewport.scrollLeft, y: 8 + viewport.scrollTop };
   commentEditor.value = {
     x: position.x,
     y: position.y,
@@ -636,7 +665,10 @@ function viewportPosition(
         viewport.scrollLeft + viewport.clientWidth - width,
       ),
     ),
-    y: Math.max(8 + viewport.scrollTop, top - viewportRect.top + viewport.scrollTop),
+    y: Math.max(
+      8 + viewport.scrollTop,
+      top - viewportRect.top + viewport.scrollTop,
+    ),
   };
 }
 
@@ -657,7 +689,9 @@ function messageViewport() {
   return (
     messagePanelRef.value?.querySelector<HTMLElement>(
       '[data-slot="message-scroller-viewport"]',
-    ) ?? messagePanelRef.value ?? document.documentElement
+    ) ??
+    messagePanelRef.value ??
+    document.documentElement
   );
 }
 
@@ -739,7 +773,6 @@ function saveComment(content: string) {
       comment.startOffset = editor.startOffset;
       comment.endOffset = editor.endOffset;
     }
-    editor.draft = false;
   } else {
     data.comments.push({
       id: crypto.randomUUID(),
@@ -754,12 +787,6 @@ function saveComment(content: string) {
 }
 
 function closeCommentEditor() {
-  const editor = commentEditor.value;
-  if (editor?.draft && editor.editingId) {
-    data.comments = data.comments.filter(
-      (comment) => comment.id !== editor.editingId,
-    );
-  }
   commentEditor.value = undefined;
 }
 

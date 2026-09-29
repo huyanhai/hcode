@@ -73,7 +73,9 @@ function escapeHtml(value: string) {
 
 function decorateAnnotations() {
   const root = rootRef.value;
-  if (!root || !props.annotations?.length) return;
+  if (!root) return;
+  clearAnnotationMarkers(root);
+  if (!props.annotations?.length) return;
 
   for (const annotation of props.annotations) {
     const range = annotationRange(root, annotation);
@@ -92,6 +94,17 @@ function decorateAnnotations() {
       marker.append(selected);
       void after;
     }
+  }
+}
+
+function clearAnnotationMarkers(root: HTMLElement) {
+  let marker = root.querySelector<HTMLElement>("mark[data-comment-id]");
+  while (marker) {
+    const parent = marker.parentNode;
+    if (!parent) return;
+    while (marker.firstChild) parent.insertBefore(marker.firstChild, marker);
+    parent.removeChild(marker);
+    marker = root.querySelector<HTMLElement>("mark[data-comment-id]");
   }
 }
 

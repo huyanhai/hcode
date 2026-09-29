@@ -1,9 +1,9 @@
 <template>
-  <HoverCard :offset="14" side="top" align="start">
+  <HoverCard :offset="14" side="top" :align="align">
     <CloseableButton
       variant="outline"
       class="shadow-none px-2 rounded-xl"
-      show-close
+      :show-close="!readonly"
     >
       <MessageSquare />
       <span>{{ comments.length }} 条注释</span>
@@ -12,7 +12,7 @@
       <article
         v-for="(comment, index) in comments"
         :key="comment.id"
-        class="flex gap-3 rounded-xl p-2 transition-colors hover:bg-muted/50"
+        class="flex gap-3 rounded-xl p-2 transition-colors hover:bg-muted/50 items-baseline"
       >
         <span class="mt-0.5 text-sm text-muted-foreground">
           {{ index + 1 }}.
@@ -28,7 +28,7 @@
             {{ comment.content }}
           </p>
         </div>
-        <div class="flex shrink-0 items-start gap-1">
+        <div class="flex shrink-0 items-start gap-1" v-if="!readonly">
           <Button
             @click="emit('edit', comment.id)"
             size="icon-sm"
@@ -62,8 +62,10 @@ export interface InputComment {
   endOffset?: number;
 }
 
-defineProps<{
+const { align = "start" } = defineProps<{
   comments: InputComment[];
+  readonly?: boolean;
+  align?: "start" | "center" | "end";
 }>();
 
 const emit = defineEmits<{
