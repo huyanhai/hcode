@@ -18,6 +18,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import type {
   CreateSessionDto,
+  EditMessageDto,
   MessageAttachment,
   MessageAttachmentDto,
   MessageSummary,
@@ -176,6 +177,57 @@ export class SessionsService {
     }
   }
 
+  async editStream(
+    id: string,
+    input: EditMessageDto,
+    response: ServerResponse,
+  ): Promise<void> {
+    const abortController = new AbortController();
+    const abort = () => abortController.abort();
+    response.once('close', abort);
+    try {
+      await this.replaceLastUserMessage(id, input.messageId);
+      response.statusCode = 200;
+      response.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      response.setHeader('Cache-Control', 'no-cache, no-transform');
+      response.setHeader('Connection', 'keep-alive');
+      const { messageId: _messageId, ...messageInput } = input;
+      const result = await this.run(
+        id,
+        messageInput,
+        (event) => response.write(`data: ${JSON.stringify(event)}\n\n`),
+        abortController.signal,
+      );
+      if (!response.destroyed) {
+        response.write(
+          `data: ${JSON.stringify({
+            type: 'done',
+            text: result.text,
+            awaitingApproval: result.awaitingApproval,
+          })}\n\n`,
+        );
+        response.end();
+      }
+    } catch (error) {
+      console.error('AI edit stream failed', error);
+      if (response.destroyed) return;
+      if (!response.headersSent) {
+        response.statusCode = 502;
+        response.setHeader('Content-Type', 'application/json; charset=utf-8');
+        response.end(
+          JSON.stringify({ code: '-1', data: null, message: '重新生成消息失败' }),
+        );
+      } else {
+        response.write(
+          `data: ${JSON.stringify({ type: 'error', message: '重新生成消息失败' })}\n\n`,
+        );
+        response.end();
+      }
+    } finally {
+      response.off('close', abort);
+    }
+  }
+
   async streamApproval(
     id: string,
     approvalId: string,
@@ -314,12 +366,14 @@ export class SessionsService {
       }
     } catch (error) {
       streamStatus = abortSignal?.aborted ? 'stopped' : 'failed';
-      await this.appendAssistantMessage(id, text, {
-        toolCalls,
-        streamStatus,
-        startedAt,
-        completedAt: BigInt(Date.now()),
-      });
+      if (text.trim() || toolCalls.length) {
+        await this.appendAssistantMessage(id, text, {
+          toolCalls,
+          streamStatus,
+          startedAt,
+          completedAt: BigInt(Date.now()),
+        });
+      }
       throw error;
     }
     const assistantMessage = await this.appendAssistantMessage(id, text, {
@@ -328,7 +382,7 @@ export class SessionsService {
       startedAt,
       completedAt: awaitingApproval ? null : BigInt(Date.now()),
     });
-    if (awaitingApproval && continuation) {
+    if (awaitingApproval && continuation && assistantMessage) {
       const pending: PendingApprovalRun = {
         sessionId: id,
         messageId: assistantMessage.id,
@@ -347,6 +401,28 @@ export class SessionsService {
       data: { updatedAt: BigInt(Date.now()) },
     });
     return { text, awaitingApproval };
+  }
+
+  private async replaceLastUserMessage(sessionId: string, messageId: string) {
+    const target = await this.prisma.message.findUnique({
+      where: { id: messageId },
+    });
+    if (!target || target.sessionId !== sessionId || target.role !== 'user')
+      throw new BadRequestException('只能编辑当前会话中的用户消息');
+
+    const latestUser = await this.prisma.message.findFirst({
+      where: { sessionId, role: 'user' },
+      orderBy: { sequence: 'desc' },
+    });
+    if (!latestUser || latestUser.id !== messageId)
+      throw new BadRequestException('只能编辑最后一条用户消息');
+
+    for (const pending of this.pendingApprovals.values()) {
+      if (pending.sessionId === sessionId) this.clearPendingApprovals(pending);
+    }
+    await this.prisma.message.deleteMany({
+      where: { sessionId, sequence: { gte: target.sequence } },
+    });
   }
 
   private createAgentContext(
@@ -422,7 +498,14 @@ export class SessionsService {
       startedAt: bigint;
       completedAt: bigint | null;
     },
-  ) {
+  ): Promise<{ id: string } | null> {
+    if (
+      !content.trim() &&
+      !metadata.toolCalls.length &&
+      metadata.streamStatus !== 'awaiting-approval'
+    ) {
+      return null;
+    }
     const last = await this.prisma.message.findFirst({
       where: { sessionId },
       orderBy: { sequence: 'desc' },

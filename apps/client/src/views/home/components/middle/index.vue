@@ -21,15 +21,73 @@
               "
             >
               <div v-if="message.role === 'user'" class="flex justify-end">
-                <Bubble variant="muted" align="end">
+                <div
+                  v-if="editingMessageId === message.id"
+                  class="w-full max-w-[min(760px,calc(100vw-2rem))] rounded-2xl bg-muted/70 p-4"
+                >
                   <MessageAttachments
                     v-if="message.attachments?.length"
                     :attachments="message.attachments"
                   />
-                  <BubbleContent class="text-base">
-                    <Markdown :content="message.content" />
-                  </BubbleContent>
-                </Bubble>
+                  <InputArea
+                    v-model="editingContent"
+                    placeholder="编辑消息"
+                    @submit="submitEdit(message)"
+                  />
+                  <div class="mt-3 flex justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      :disabled="sending"
+                      @click="cancelEdit"
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      size="sm"
+                      :disabled="
+                        sending ||
+                        (!editingContent.trim() && !message.attachments?.length)
+                      "
+                      @click="submitEdit(message)"
+                    >
+                      {{ sending ? "发送中..." : "发送" }}
+                    </Button>
+                  </div>
+                </div>
+                <template v-else>
+                  <Bubble variant="muted" align="end">
+                    <MessageAttachments
+                      v-if="message.attachments?.length"
+                      :attachments="message.attachments"
+                    />
+                    <BubbleContent class="text-base">
+                      <Markdown :content="message.content" />
+                    </BubbleContent>
+                    <div
+                      class="mt-1 flex items-center justify-end text-xs text-muted-foreground"
+                    >
+                      <span class="mr-2">{{ formatMessageTime(message.createdAt) }}</span>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        style="transform: scale(0.8)"
+                        @click="copyMessage(message.content)"
+                      >
+                        <Copy />
+                      </Button>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        style="transform: scale(0.8)"
+                        v-if="message.id === lastUserMessageId && !sending"
+                        @click="startEdit(message)"
+                      >
+                        <Pencil />
+                      </Button>
+                    </div>
+                  </Bubble>
+                </template>
               </div>
               <template v-else>
                 <ResponseProgress
@@ -97,6 +155,7 @@ import {
   listModelProfiles,
   listProfileModels,
   openSession,
+  streamEditedSessionMessage,
   streamApprovalResponse,
   streamSessionMessage,
   type SessionStreamEvent,
@@ -109,7 +168,7 @@ import {
   useSessionSelection,
 } from "@/stores/session-selection";
 import Markdown from "../../../../components/markdown/index.vue";
-import { Ellipsis, MoveDown } from "@lucide/vue";
+import { Copy, Ellipsis, MoveDown, Pencil } from "@lucide/vue";
 import {
   ResponseProgress,
   type ResponseStreamStatus,
@@ -126,6 +185,8 @@ import {
 import { buildChatHistoryTurns } from "./chat-history";
 import { provideMessageScroller } from "@/components/ui/message-scroller";
 import MessageAttachments from "./MessageAttachments.vue";
+import InputArea from "./input/InputArea.vue";
+import { Button } from "@/components/ui/button";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -138,6 +199,8 @@ const data = reactive<SubmitPayload>({
 const sending = ref(false);
 let abortController: AbortController | undefined;
 const respondingApprovalId = ref<string>();
+const editingMessageId = ref<string>();
+const editingContent = ref("");
 
 const { scrollToMessage } = provideMessageScroller({
   autoScroll: true,
@@ -183,6 +246,12 @@ const modelsQuery = useQuery({
 //#region Computed
 // 消息列表
 const messages = computed(() => sessionQuery.data.value?.messages ?? []);
+const lastUserMessageId = computed(() => {
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    if (messages.value[index]?.role === "user") return messages.value[index].id;
+  }
+  return "";
+});
 const historyTurns = computed(() => buildChatHistoryTurns(messages.value));
 const activeHistoryTurnId = ref("");
 const modelOptions = computed(() => {
@@ -339,6 +408,130 @@ async function submit() {
     if (!stopped) {
       toast.error(error instanceof Error ? error.message : "发送消息失败");
     }
+  } finally {
+    abortController = undefined;
+    sending.value = false;
+    if (activeSessionId.value === sessionId) activeSessionId.value = "";
+  }
+}
+
+type SessionMessage = SessionDetail["messages"][number];
+
+function startEdit(message: SessionMessage) {
+  if (sending.value || message.id !== lastUserMessageId.value) return;
+  editingMessageId.value = message.id;
+  editingContent.value = message.content;
+}
+
+function cancelEdit() {
+  if (sending.value) return;
+  editingMessageId.value = undefined;
+  editingContent.value = "";
+}
+
+async function copyMessage(content: string) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(content);
+    } else {
+      const textarea = document.createElement("textarea");
+      textarea.value = content;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      textarea.remove();
+    }
+    toast.success("消息已复制");
+  } catch {
+    toast.error("复制消息失败");
+  }
+}
+
+function formatMessageTime(value: string) {
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+async function submitEdit(message: SessionMessage) {
+  const sessionId = selectedSessionId.value;
+  const content = editingContent.value.trim();
+  if (
+    !sessionId ||
+    message.id !== lastUserMessageId.value ||
+    (!content && !message.attachments?.length) ||
+    sending.value
+  )
+    return;
+
+  const current = sessionQuery.data.value;
+  const assistantMessageId = crypto.randomUUID();
+  const editedUserMessage = {
+    ...message,
+    content,
+    createdAt: String(Date.now()),
+  };
+  const assistantMessage = {
+    id: assistantMessageId,
+    sessionId,
+    turnId: null,
+    role: "assistant" as const,
+    content: "",
+    reasoning: "",
+    toolCalls: [] as ResponseToolCall[],
+    timeline: [] as ResponseTimelineItem[],
+    streamStatus: "thinking" as ResponseStreamStatus,
+    startedAt: String(Date.now()),
+    sequence: message.sequence + 1,
+    createdAt: String(Date.now()),
+  };
+  if (!current) return;
+
+  const previousMessages = current.messages;
+  queryClient.setQueryData<SessionDetail>(["session", sessionId], {
+    ...current,
+    messages: [
+      ...previousMessages.filter((item) => item.sequence < message.sequence),
+      editedUserMessage,
+      assistantMessage,
+    ],
+  });
+  editingMessageId.value = undefined;
+  editingContent.value = "";
+  sending.value = true;
+  activeSessionId.value = sessionId;
+  try {
+    abortController = new AbortController();
+    await streamEditedSessionMessage(
+      sessionId,
+      message.id,
+      {
+        content,
+        attachments: message.attachments,
+        profileId: defaultProfile.value?.id,
+        model: data.model || undefined,
+        fullAccess: data.fullAccess,
+      },
+      (event) => updateStreamMessage(sessionId, assistantMessageId, event),
+      abortController.signal,
+    );
+    const detail = await openSession(sessionId);
+    queryClient.setQueryData<SessionDetail>(["session", sessionId], detail);
+    await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+  } catch (error) {
+    try {
+      const detail = await openSession(sessionId);
+      queryClient.setQueryData<SessionDetail>(["session", sessionId], detail);
+    } catch {
+      queryClient.setQueryData<SessionDetail>(["session", sessionId], current);
+    }
+    toast.error(error instanceof Error ? error.message : "重新生成消息失败");
   } finally {
     abortController = undefined;
     sending.value = false;

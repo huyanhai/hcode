@@ -57,6 +57,12 @@ export class SendMessageDto {
   attachments?: MessageAttachmentDto[];
 }
 
+export class EditMessageDto extends SendMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  messageId!: string;
+}
+
 export class RespondApprovalDto {
   @IsBoolean()
   approved!: boolean;

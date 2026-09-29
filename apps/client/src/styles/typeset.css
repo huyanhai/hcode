@@ -24,7 +24,7 @@
     margin-trim: block-start;
 
     p {
-      font-size: calc(var(--typeset-size) * 0.9);
+      font-size: inherit;
     }
 
     @media (min-width: 48rem), print {

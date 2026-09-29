@@ -13,6 +13,7 @@ import { successResponse, type ApiResponse } from '../common/api-response';
 import { SessionsService } from './sessions.service';
 import {
   CreateSessionDto,
+  EditMessageDto,
   RespondApprovalDto,
   SendMessageDto,
   type SessionDetail,
@@ -65,6 +66,15 @@ export class SessionsController {
     @Res() response: Response,
   ): Promise<void> {
     await this.service.stream(id, body, response);
+  }
+
+  @Post(':id/messages/edit/stream')
+  async editStream(
+    @Param('id') id: string,
+    @Body() body: EditMessageDto,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.service.editStream(id, body, response);
   }
 
   @Post(':id/approvals/:approvalId/stream')

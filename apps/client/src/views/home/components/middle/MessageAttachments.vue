@@ -8,13 +8,8 @@
       :offset="10"
     >
       <a
-        :href="attachment.url"
-        :download="attachment.name"
-        target="_blank"
-        rel="noreferrer"
-        class="group relative -ml-4 block h-14 w-14 shrink-0 overflow-hidden rounded-lg border bg-background transition-transform first:ml-0 hover:z-50 hover:-translate-y-1 focus-visible:z-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        class="group relative -ml-4 block h-14 w-14 shrink-0 overflow-hidden rounded-lg border bg-background first:ml-0 hover:z-50 focus-visible:z-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         :style="{ zIndex: index }"
-        :aria-label="attachment.name"
       >
         <img
           v-if="isImage(attachment.mimeType)"
@@ -36,7 +31,7 @@
           <img
             :src="attachment.url"
             :alt="attachment.name"
-            class="max-h-72 max-w-80 rounded-md object-contain"
+            class="max-h-72 max-w-80 w-full rounded-md object-contain"
             loading="lazy"
           />
           <div class="mt-2 min-w-0">

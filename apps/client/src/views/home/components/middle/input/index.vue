@@ -1,6 +1,8 @@
 <template>
   <form class="w-full" @submit.prevent="handleSubmit">
-    <InputGroup class="items-stretch overflow-hidden rounded-2xl gap-2 pt-2 shadow">
+    <InputGroup
+      class="items-stretch overflow-hidden rounded-2xl gap-2 pt-2 shadow"
+    >
       <div class="w-full flex flex-col gap-2 px-4">
         <div
           class="flex gap-2 items-end"
@@ -117,11 +119,19 @@
           variant="default"
           size="icon-sm"
           class="ml-1 button-full shrink-0"
-          :disabled="sending ? false : !canSubmit || disabled || hasPendingUpload || hasUploadError"
+          :disabled="
+            sending
+              ? false
+              : !canSubmit || disabled || hasPendingUpload || hasUploadError
+          "
           :aria-label="sending ? '停止生成' : '发送消息'"
           @click="sending ? emit('stop') : undefined"
         >
-          <Square v-if="sending" class="fill-current" />
+          <Square
+            v-if="sending"
+            class="fill-current"
+            style="transform: scale(0.8)"
+          />
           <ArrowUp v-else />
         </InputGroupButton>
       </InputGroupAddon>
@@ -189,10 +199,14 @@ const canSubmit = computed(() =>
   ),
 );
 const hasPendingUpload = computed(() =>
-  modelData.value.attachments.some((attachment) => attachment.uploadState === "uploading"),
+  modelData.value.attachments.some(
+    (attachment) => attachment.uploadState === "uploading",
+  ),
 );
 const hasUploadError = computed(() =>
-  modelData.value.attachments.some((attachment) => attachment.uploadState === "error"),
+  modelData.value.attachments.some(
+    (attachment) => attachment.uploadState === "error",
+  ),
 );
 //#endregion
 //#region Watch
@@ -255,7 +269,8 @@ function addFiles(files: File[]) {
 async function createImagePreview(id: string, file: File) {
   const previewUrl = await new Promise<string | undefined>((resolve) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : undefined);
     reader.onerror = () => resolve(undefined);
     reader.readAsDataURL(file);
   });
@@ -267,15 +282,20 @@ async function createImagePreview(id: string, file: File) {
 async function uploadSelectedAttachment(id: string, file: File) {
   try {
     const uploaded = await uploadAttachment(file);
-    const attachment = modelData.value.attachments.find((item) => item.id === id);
+    const attachment = modelData.value.attachments.find(
+      (item) => item.id === id,
+    );
     if (!attachment) return;
     attachment.uploaded = uploaded;
     attachment.uploadState = "uploaded";
   } catch (error) {
-    const attachment = modelData.value.attachments.find((item) => item.id === id);
+    const attachment = modelData.value.attachments.find(
+      (item) => item.id === id,
+    );
     if (!attachment) return;
     attachment.uploadState = "error";
-    attachment.uploadError = error instanceof Error ? error.message : "附件上传失败";
+    attachment.uploadError =
+      error instanceof Error ? error.message : "附件上传失败";
   }
 }
 
@@ -305,7 +325,8 @@ function selectTool(tool: "image" | "research" | "web-search") {
 }
 
 function handleSubmit() {
-  if (!canSubmit.value || hasPendingUpload.value || hasUploadError.value) return;
+  if (!canSubmit.value || hasPendingUpload.value || hasUploadError.value)
+    return;
   emit("submit");
 
   nextTick(() => {

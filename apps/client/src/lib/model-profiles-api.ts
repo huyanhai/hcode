@@ -323,6 +323,25 @@ export async function streamSessionMessage(
   );
 }
 
+export async function streamEditedSessionMessage(
+  id: string,
+  messageId: string,
+  input: { content: string; attachments?: MessageAttachment[]; profileId?: string; model?: string; fullAccess?: boolean },
+  onEvent: (event: SessionStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  return streamSessionEvents(
+    `${API_BASE_URL}/api/sessions/${encodeURIComponent(id)}/messages/edit/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId, ...input }),
+      signal,
+    },
+    onEvent,
+  );
+}
+
 export async function streamApprovalResponse(
   id: string,
   approvalId: string,
