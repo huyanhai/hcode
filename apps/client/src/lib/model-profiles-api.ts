@@ -12,6 +12,7 @@ export type ModelProfileSummary = {
   name: string;
   provider: string;
   model: string;
+  requestType: "response" | "chat";
   baseUrl: string;
   isDefault: boolean;
   createdAt: string | number;
@@ -24,6 +25,7 @@ export type UpsertModelProfileInput = {
   name: string;
   provider: string;
   model: string;
+  requestType?: "response" | "chat";
   baseUrl: string;
   apiKey?: string;
   isDefault?: boolean;

@@ -12,6 +12,7 @@ model ModelProfile {
   name      String
   provider  String
   model     String
+  requestType String @default("response") @map("request_type")
   baseUrl   String  @map("base_url")
   apiKey    String  @map("api_key")
   isDefault Boolean @default(false) @map("is_default")

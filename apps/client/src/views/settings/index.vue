@@ -1,10 +1,5 @@
 <template>
   <div class="flex h-dvh min-h-0 flex-col bg-background text-foreground">
-    <div
-      class="h-10 shrink-0"
-      style="-webkit-app-region: drag"
-      aria-hidden="true"
-    />
     <div class="flex min-h-0 flex-1">
       <aside class="flex w-56 shrink-0 flex-col border-r bg-muted/20">
         <div class="px-2 pb-5">

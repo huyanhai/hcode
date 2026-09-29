@@ -1,8 +1,5 @@
 <template>
-  <div
-    class="flex justify-between items-center"
-    style="-webkit-app-region: drag"
-  >
+  <div class="flex justify-between items-center">
     <div class="flex gap-2 pl-20">
       <Button variant="ghost" @click="left = !left" class="button button-hover">
         <PanelLeft v-if="left" />
@@ -16,11 +13,19 @@
       </Button> -->
     </div>
     <div class="flex gap-2">
-      <Button variant="ghost" class="button button-hover" @click="bottom = !bottom">
+      <Button
+        variant="ghost"
+        class="button button-hover"
+        @click="bottom = !bottom"
+      >
         <PanelBottom v-if="bottom" />
         <PanelBottomOpen v-else />
       </Button>
-      <Button variant="ghost" class="button button-hover" @click="right = !right">
+      <Button
+        variant="ghost"
+        class="button button-hover"
+        @click="right = !right"
+      >
         <PanelRight v-if="right" />
         <PanelRightOpen v-else />
       </Button>

@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsNotEmpty,
   IsOptional,
+  IsIn,
   IsString,
   IsUrl,
 } from 'class-validator';
@@ -11,6 +12,7 @@ export type ModelProfileSummary = {
   name: string;
   provider: string;
   model: string;
+  requestType: 'response' | 'chat';
   baseUrl: string;
   isDefault: boolean;
   createdAt: string;
@@ -35,6 +37,10 @@ export class UpsertModelProfileDto {
   @IsString()
   @IsNotEmpty()
   model!: string;
+
+  @IsOptional()
+  @IsIn(['response', 'chat'])
+  requestType?: 'response' | 'chat';
 
   @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
   baseUrl!: string;

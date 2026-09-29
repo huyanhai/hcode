@@ -16,7 +16,7 @@ const now = () => Date.now();
 function profileFromRow(row: Row): ModelProfile {
   return {
     id: String(row.id), name: String(row.name), provider: String(row.provider),
-    model: String(row.model), baseUrl: String(row.base_url), apiKey: String(row.api_key),
+    model: String(row.model), baseUrl: String(row.base_url), apiKey: String(row.api_key), requestType: row.request_type === "chat" ? "chat" : "response",
     isDefault: Boolean(row.is_default), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
   };
 }
@@ -47,11 +47,11 @@ export class ProfileRepository {
     const existing = this.get(input.id);
     if (input.isDefault) this.database.prepare("UPDATE model_profiles SET is_default = 0").run();
     this.database.prepare(`
-      INSERT INTO model_profiles (id, name, provider, model, base_url, api_key, is_default, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO model_profiles (id, name, provider, model, request_type, base_url, api_key, is_default, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET name=excluded.name, provider=excluded.provider, model=excluded.model,
-        base_url=excluded.base_url, api_key=excluded.api_key, is_default=excluded.is_default, updated_at=excluded.updated_at
-    `).run(input.id, input.name, input.provider, input.model, input.baseUrl, input.apiKey,
+        request_type=excluded.request_type, base_url=excluded.base_url, api_key=excluded.api_key, is_default=excluded.is_default, updated_at=excluded.updated_at
+    `).run(input.id, input.name, input.provider, input.model, input.requestType ?? "response", input.baseUrl, input.apiKey,
       input.isDefault ? 1 : 0, existing?.createdAt ?? timestamp, timestamp);
     return summaryFromProfile(this.get(input.id)!);
   }

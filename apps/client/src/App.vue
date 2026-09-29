@@ -1,4 +1,5 @@
 <template>
+  <DragArea />
   <router-view v-slot="{ Component, route }">
     <KeepAlive include="HomeView">
       <component :is="Component" v-if="route.meta.keepAlive" />

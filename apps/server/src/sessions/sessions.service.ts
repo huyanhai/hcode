@@ -329,6 +329,7 @@ export class SessionsService {
     const agentProfile = {
       ...profile,
       model: input.model?.trim() || profile.model,
+      requestType: (profile.requestType === 'chat' ? 'chat' : 'response') as 'chat' | 'response',
       baseUrl: normalizeProviderBaseUrl(profile.baseUrl),
       createdAt: Number(profile.createdAt),
       updatedAt: Number(profile.updatedAt),

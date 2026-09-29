@@ -1,6 +1,6 @@
 <template>
   <Top
-    class="absolute h-12 w-full z-10 pr-2"
+    class="w-full z-10 pr-2 absolute"
     v-model:left="showLeft"
     v-model:right="showRight"
     v-model:bottom="showBottom"

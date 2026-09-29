@@ -32,6 +32,7 @@ export class ModelProfilesService {
     const existing = id
       ? await this.prisma.modelProfile.findUnique({ where: { id } })
       : null;
+    const requestType = input.requestType ?? existing?.requestType ?? 'response';
 
     if (id && !existing) {
       throw new NotFoundException({
@@ -62,6 +63,7 @@ export class ModelProfilesService {
               name,
               provider,
               model,
+              requestType,
               baseUrl,
               apiKey,
               isDefault,
@@ -74,6 +76,7 @@ export class ModelProfilesService {
               name,
               provider,
               model,
+              requestType,
               baseUrl,
               apiKey,
               isDefault,
@@ -166,6 +169,7 @@ export class ModelProfilesService {
     name: string;
     provider: string;
     model: string;
+    requestType: string;
     baseUrl: string;
     apiKey: string;
     isDefault: boolean;
@@ -177,6 +181,7 @@ export class ModelProfilesService {
       name: profile.name,
       provider: profile.provider,
       model: profile.model,
+      requestType: profile.requestType === 'chat' ? 'chat' : 'response',
       baseUrl: normalizeProviderBaseUrl(profile.baseUrl),
       isDefault: profile.isDefault,
       createdAt: profile.createdAt.toString(),

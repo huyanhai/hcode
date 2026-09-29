@@ -37,7 +37,7 @@ export type AgentContext = {
   additionalRoots?: WorkspaceRoot[];
   permissionMode?: "restricted" | "full";
 };
-export type ModelProfile = { id: string; name: string; provider: string; model: string; baseUrl: string; apiKey: string; isDefault: boolean; createdAt: number; updatedAt: number };
+export type ModelProfile = { id: string; name: string; provider: string; model: string; baseUrl: string; apiKey: string; requestType?: "response" | "chat"; isDefault: boolean; createdAt: number; updatedAt: number };
 export type ApprovalDecisions = Record<string, boolean>;
 
 export type AgentAttachment = {
@@ -197,6 +197,37 @@ function openaiTools(tools: Record<string, ToolDefinition>) {
   }));
 }
 
+function chatTools(tools: Record<string, ToolDefinition>) {
+  return Object.entries(tools).map(([name, definition]) => ({
+    type: "function" as const,
+    function: { name, description: definition.description, parameters: definition.parameters },
+  }));
+}
+
+function chatMessages(messages: unknown[]): unknown[] {
+  return messages.map((message) => {
+    if (!message || typeof message !== "object") return message;
+    const value = message as Record<string, unknown>;
+    if (Array.isArray(value.tool_calls) || value.tool_call_id) return value;
+    const role = value.role === "developer" ? "system" : value.role;
+    const rawContent = value.content;
+    if (!Array.isArray(rawContent)) return { role, content: String(rawContent ?? "") };
+    const content = rawContent.map((part) => {
+      if (!part || typeof part !== "object") return part;
+      const item = part as Record<string, unknown>;
+      if (item.type === "input_text") return { type: "text", text: String(item.text ?? "") };
+      if (item.type === "input_image") return { type: "image_url", image_url: { url: String(item.image_url ?? "") } };
+      if (item.type === "input_file") return { type: "text", text: `[File: ${String(item.filename ?? "attachment")}]` };
+      return item;
+    });
+    return { role, content };
+  });
+}
+
+function chatToolOutput(call: FunctionCall, output: unknown) {
+  return { role: "tool", tool_call_id: call.callId, content: JSON.stringify(output) };
+}
+
 export function inputMessages(messages: unknown[]): unknown[] {
   return messages.map((message) => {
     if (!message || typeof message !== "object") return message;
@@ -238,6 +269,10 @@ function itemCall(item: unknown): FunctionCall | null {
     name: String(value.name ?? ""),
     arguments: String(value.arguments ?? ""),
   };
+}
+
+function parseToolArguments(argumentsText: string): unknown {
+  try { return JSON.parse(argumentsText || "{}"); } catch { return {}; }
 }
 
 function responseItems(response: Response): unknown[] {
@@ -282,19 +317,75 @@ export async function* streamAgent(
     for (let step = 0; step < 20; step += 1) {
       let stepCalls = pendingToolCalls;
       if (!stepCalls.length) {
-        const request = {
-          model: profile.model,
-          instructions: instructions(context),
-          input: conversation as never,
-          tools: openaiTools(tools) as never,
-          reasoning: { summary: "auto" },
-          stream: streamOutput,
-        };
-        const result = await client.responses.create(request as never, { signal: abortSignal });
+        const request = profile.requestType === "chat"
+          ? {
+              model: profile.model,
+              messages: [{ role: "system", content: instructions(context) }, ...chatMessages(conversation)] as never,
+              tools: chatTools(tools) as never,
+              stream: streamOutput,
+            }
+          : {
+              model: profile.model,
+              instructions: instructions(context),
+              input: conversation as never,
+              tools: openaiTools(tools) as never,
+              reasoning: { summary: "auto" },
+              stream: streamOutput,
+            };
+        const result = profile.requestType === "chat"
+          ? await client.chat.completions.create(request as never, { signal: abortSignal })
+          : await client.responses.create(request as never, { signal: abortSignal });
         let response: Response | undefined;
         const calls = new Map<string, FunctionCall>();
 
-        if (!streamOutput) {
+        if (profile.requestType === "chat") {
+          let assistantText = "";
+          const chatCalls = new Map<number, FunctionCall>();
+          const consumeChunk = (chunk: any) => {
+            const choice = chunk?.choices?.[0];
+            const delta = choice?.delta ?? {};
+            if (typeof delta.content === "string" && delta.content) {
+              assistantText += delta.content;
+              return [{ type: "text", text: delta.content } as CoreStreamEvent];
+            }
+            const events: CoreStreamEvent[] = [];
+            for (const tool of Array.isArray(delta.tool_calls) ? delta.tool_calls : []) {
+              const index = Number(tool.index ?? 0);
+              const existing = chatCalls.get(index);
+              const call: FunctionCall = existing ?? {
+                callId: String(tool.id ?? `call_${index}`), itemId: String(tool.id ?? `call_${index}`),
+                name: String(tool.function?.name ?? ""), arguments: "",
+              };
+              if (tool.id) call.callId = String(tool.id);
+              if (tool.function?.name) call.name = String(tool.function.name);
+              const args = String(tool.function?.arguments ?? "");
+              call.arguments += args;
+              chatCalls.set(index, call);
+              if (!existing) events.push({ type: "tool-call", toolCallId: call.callId, itemId: call.itemId, toolName: call.name, input: parseToolArguments(call.arguments), rawArguments: call.arguments });
+              if (args) events.push({ type: "tool-call-delta", toolCallId: call.callId, itemId: call.itemId, delta: args, arguments: call.arguments });
+            }
+            return events;
+          };
+          if (!streamOutput) {
+            const completion = result as any;
+            const message = completion.choices?.[0]?.message ?? {};
+            assistantText = String(message.content ?? "");
+            for (const tool of message.tool_calls ?? []) {
+              const call: FunctionCall = { callId: String(tool.id), itemId: String(tool.id), name: String(tool.function?.name ?? ""), arguments: String(tool.function?.arguments ?? "") };
+              chatCalls.set(chatCalls.size, call);
+            }
+            if (assistantText) { finalText += assistantText; yield { type: "text", text: assistantText }; }
+          } else {
+            for await (const chunk of result as any) for (const event of consumeChunk(chunk)) { if (event.type === "text") finalText += event.text; yield event; }
+          }
+          stepCalls = [...chatCalls.values()];
+          if (assistantText || stepCalls.length) {
+            conversation = [...conversation, { role: "assistant", content: assistantText || null, ...(stepCalls.length ? { tool_calls: stepCalls.map((call) => ({ id: call.callId, type: "function", function: { name: call.name, arguments: call.arguments } })) } : {}) }];
+          }
+          if (!stepCalls.length) break;
+        }
+
+        if (profile.requestType !== "chat" && !streamOutput) {
           response = result as Response;
           const outputText = responseText(response);
           if (outputText) {
@@ -307,7 +398,7 @@ export async function* streamAgent(
           }
         }
         const adapter = new OpenAIResponseStreamAdapter();
-        for await (const providerEvent of (streamOutput ? result : []) as unknown as AsyncIterable<ResponseStreamEvent>) {
+        for await (const providerEvent of (profile.requestType !== "chat" && streamOutput ? result : []) as unknown as AsyncIterable<ResponseStreamEvent>) {
           for (const event of adapter.adapt(providerEvent)) {
             if (event.type === "text") {
               finalText += event.text;
@@ -331,14 +422,16 @@ export async function* streamAgent(
           }
         }
 
-        if (!response) break;
-        if (!stepCalls.length) {
-          stepCalls = responseItems(response)
+        if (profile.requestType === "chat") {
+          // Chat completions already produced a normalized tool-call list above.
+        } else if (!response) break;
+        if (profile.requestType !== "chat" && !stepCalls.length) {
+          stepCalls = responseItems(response!)
             .map(itemCall)
             .filter((call): call is FunctionCall => Boolean(call));
         }
         if (!stepCalls.length) break;
-        conversation = [...conversation, ...responseItems(response)];
+        if (profile.requestType !== "chat") conversation = [...conversation, ...responseItems(response!)];
       }
 
       const outputs = [...pendingOutputs];
@@ -350,13 +443,13 @@ export async function* streamAgent(
           input = JSON.parse(call.arguments || "{}") as Record<string, unknown>;
         } catch {
           const output = { error: "Invalid JSON arguments" };
-          outputs.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+          outputs.push(profile.requestType === "chat" ? chatToolOutput(call, output) : { type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
           yield { type: "tool-result", toolCallId: call.callId, toolName: call.name, output };
           continue;
         }
         if (!definition) {
           const output = { error: `Unknown tool: ${call.name}` };
-          outputs.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+          outputs.push(profile.requestType === "chat" ? chatToolOutput(call, output) : { type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
           yield { type: "tool-result", toolCallId: call.callId, toolName: call.name, output };
           continue;
         }
@@ -369,18 +462,18 @@ export async function* streamAgent(
           }
           if (!approvals[approvalId]) {
             const output = { error: "Tool execution was denied by the user" };
-            outputs.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+            outputs.push(profile.requestType === "chat" ? chatToolOutput(call, output) : { type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
             yield { type: "tool-result", toolCallId: call.callId, toolName: call.name, output };
             continue;
           }
         }
         try {
           const output = await definition.execute(input);
-          outputs.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+          outputs.push(profile.requestType === "chat" ? chatToolOutput(call, output) : { type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
           yield { type: "tool-result", toolCallId: call.callId, toolName: call.name, output };
         } catch (error) {
           const output = { error: error instanceof Error ? error.message : String(error) };
-          outputs.push({ type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
+          outputs.push(profile.requestType === "chat" ? chatToolOutput(call, output) : { type: "function_call_output", call_id: call.callId, output: JSON.stringify(output) });
           yield { type: "tool-result", toolCallId: call.callId, toolName: call.name, output };
         }
       }

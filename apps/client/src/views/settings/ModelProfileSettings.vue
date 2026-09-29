@@ -26,6 +26,13 @@
               </ItemDescription>
             </ItemContent>
             <ItemActions>
+              <Badge
+                v-if="!profile.isDefault"
+                class="hover:bg-accent cursor-pointer"
+                variant="outline"
+              >
+                设为默认
+              </Badge>
               <Button
                 type="button"
                 size="icon-sm"
@@ -95,6 +102,27 @@
       </FieldContent>
     </Field>
     <Field>
+      <FieldLabel>请求类型</FieldLabel>
+      <FieldContent>
+        <div class="grid grid-cols-2 gap-2">
+          <Button
+            type="button"
+            :variant="draft.requestType === 'response' ? 'default' : 'outline'"
+            @click="draft.requestType = 'response'"
+          >
+            Response
+          </Button>
+          <Button
+            type="button"
+            :variant="draft.requestType === 'chat' ? 'default' : 'outline'"
+            @click="draft.requestType = 'chat'"
+          >
+            Chat
+          </Button>
+        </div>
+      </FieldContent>
+    </Field>
+    <Field>
       <div class="flex items-center gap-3">
         <Checkbox v-model="draft.isDefault" />
         <FieldDescription>设为默认</FieldDescription>
@@ -131,6 +159,7 @@ type ProfileDraft = {
   baseUrl: string;
   apiKey: string;
   model: string;
+  requestType: "response" | "chat";
   isDefault: boolean;
 };
 const emptyDraft = (): ProfileDraft => ({
@@ -140,6 +169,7 @@ const emptyDraft = (): ProfileDraft => ({
   baseUrl: "https://api.openai.com/v1",
   apiKey: "",
   model: "",
+  requestType: "response",
   isDefault: false,
 });
 const showDialog = ref(false);
@@ -177,6 +207,7 @@ function editProfile(profile: ModelProfileSummary) {
     baseUrl: profile.baseUrl,
     apiKey: "",
     model: profile.model,
+    requestType: profile.requestType ?? "response",
     isDefault: profile.isDefault,
   });
   showDialog.value = true;
@@ -190,6 +221,7 @@ async function save() {
       name: draft.name.trim(),
       provider: draft.provider.trim(),
       model: draft.model.trim(),
+      requestType: draft.requestType,
       baseUrl: draft.baseUrl.trim(),
       apiKey: draft.apiKey.trim() || undefined,
       isDefault: draft.isDefault,

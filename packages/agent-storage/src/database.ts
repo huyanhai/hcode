@@ -26,6 +26,7 @@ function migrate(database: Database): void {
       name TEXT NOT NULL,
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
+      request_type TEXT NOT NULL DEFAULT 'response',
       base_url TEXT NOT NULL,
       api_key TEXT NOT NULL,
       is_default INTEGER NOT NULL DEFAULT 0,
@@ -101,6 +102,10 @@ function migrate(database: Database): void {
     CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, sequence);
     CREATE INDEX IF NOT EXISTS idx_events_session ON agent_events(session_id, sequence);
   `);
+  const columns = database.prepare("PRAGMA table_info(model_profiles)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "request_type")) {
+    database.exec("ALTER TABLE model_profiles ADD COLUMN request_type TEXT NOT NULL DEFAULT 'response'");
+  }
 }
 
 export function closeDatabase(database: Database): void {
