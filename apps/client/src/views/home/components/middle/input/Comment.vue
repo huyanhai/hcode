@@ -57,6 +57,9 @@ export interface InputComment {
   id: string;
   content: string;
   selectedText?: string;
+  messageId?: string;
+  startOffset?: number;
+  endOffset?: number;
 }
 
 defineProps<{

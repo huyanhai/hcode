@@ -195,7 +195,9 @@ const emit = defineEmits(["submit", "stop", "editComment"]);
 //#region Computed
 const canSubmit = computed(() =>
   Boolean(
-    modelData.value.attachments.length || !!modelData.value.content.trim(),
+    modelData.value.attachments.length ||
+      modelData.value.comments.length ||
+      !!modelData.value.content.trim(),
   ),
 );
 const hasPendingUpload = computed(() =>

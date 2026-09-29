@@ -4,12 +4,13 @@
   >
     <div class="h-12 shrink-0 border-b"></div>
     <div
+      ref="messagePanelRef"
       class="relative px-4 h-1/2 flex-1 box-border w-full max-w-[900px] mx-auto flex flex-col"
     >
       <MessageScroller class="h-1/2 flex-1">
         <MessageScrollerViewport
-          class="no-scrollbar pb-10 pt-4"
-          @scroll="syncActiveHistoryTurn"
+          class="relative no-scrollbar pb-10 pt-4"
+          @scroll="handleViewportScroll"
         >
           <MessageScrollerContent>
             <MessageScrollerItem
@@ -19,6 +20,7 @@
               :scroll-anchor="
                 message.role === 'user' || message.id === messages.at(-1)?.id
               "
+              @mouseup="handleMessageSelection($event, message.id)"
             >
               <div v-if="message.role === 'user'" class="flex justify-end">
                 <div
@@ -47,7 +49,9 @@
                       size="sm"
                       :disabled="
                         sending ||
-                        (!editingContent.trim() && !message.attachments?.length)
+                        (!editingContent.trim() &&
+                          !message.attachments?.length &&
+                          !message.comments?.length)
                       "
                       @click="submitEdit(message)"
                     >
@@ -62,7 +66,11 @@
                       :attachments="message.attachments"
                     />
                     <BubbleContent class="text-base">
-                      <Markdown :content="message.content" />
+                      <Markdown
+                        :content="message.content"
+                        :annotations="commentsForMessage(message.id)"
+                        @annotation-click="(id, event) => openCommentAtMarker(message.id, id, event)"
+                      />
                     </BubbleContent>
                     <div
                       class="mt-1 flex items-center justify-end text-xs text-muted-foreground"
@@ -113,6 +121,8 @@
                   v-if="finalResponseContent(message)"
                   class="text-base"
                   :content="finalResponseContent(message)"
+                  :annotations="commentsForMessage(message.id)"
+                  @annotation-click="(id, event) => openCommentAtMarker(message.id, id, event)"
                 />
                 <Thinking v-if="latestReasoning(message.reasoning)" single-line>
                   {{ latestReasoning(message.reasoning) }}
@@ -120,6 +130,29 @@
               </template>
             </MessageScrollerItem>
           </MessageScrollerContent>
+          <div
+            v-if="selectionMenu"
+            class="absolute z-50"
+            :style="{ left: `${selectionMenu.x}px`, top: `${selectionMenu.y}px` }"
+          >
+            <Button size="sm" variant="outline" @click="openSelectionComment">
+              <MessageSquare class="size-4" />
+              添加评论
+            </Button>
+          </div>
+          <div
+            v-if="commentEditor"
+            data-comment-editor
+            class="absolute z-50 w-80 max-w-[calc(100vw-1rem)]"
+            :style="{ left: `${commentEditor.x}px`, top: `${commentEditor.y}px` }"
+          >
+            <CommentEditor
+              :selected-text="commentEditor.selectedText"
+              :initial-content="commentEditor.initialContent"
+              @cancel="closeCommentEditor"
+              @confirm="saveComment"
+            />
+          </div>
         </MessageScrollerViewport>
         <MessageScrollerButton
           class="rounded-full border glass-bg"
@@ -137,6 +170,7 @@
         :disabled="!selectedSessionId"
         @submit="submit"
         @stop="stopTurn"
+        @edit-comment="editInputComment"
       />
     </div>
     <ChatHistoryRail
@@ -168,7 +202,7 @@ import {
   useSessionSelection,
 } from "@/stores/session-selection";
 import Markdown from "../../../../components/markdown/index.vue";
-import { Copy, Ellipsis, MoveDown, Pencil } from "@lucide/vue";
+import { Copy, Ellipsis, MessageSquare, MoveDown, Pencil } from "@lucide/vue";
 import {
   ResponseProgress,
   type ResponseStreamStatus,
@@ -186,6 +220,7 @@ import { buildChatHistoryTurns } from "./chat-history";
 import { provideMessageScroller } from "@/components/ui/message-scroller";
 import MessageAttachments from "./MessageAttachments.vue";
 import InputArea from "./input/InputArea.vue";
+import CommentEditor from "./input/CommentEditor.vue";
 import { Button } from "@/components/ui/button";
 
 const data = reactive<SubmitPayload>({
@@ -201,6 +236,26 @@ let abortController: AbortController | undefined;
 const respondingApprovalId = ref<string>();
 const editingMessageId = ref<string>();
 const editingContent = ref("");
+const selectionMenu = ref<{
+  x: number;
+  y: number;
+  messageId: string;
+  text: string;
+  startOffset: number;
+  endOffset: number;
+}>();
+const commentEditor = ref<{
+  x: number;
+  y: number;
+  messageId: string;
+  selectedText: string;
+  initialContent?: string;
+  editingId?: string;
+  draft?: boolean;
+  startOffset?: number;
+  endOffset?: number;
+}>();
+const messagePanelRef = ref<HTMLElement>();
 
 const { scrollToMessage } = provideMessageScroller({
   autoScroll: true,
@@ -317,6 +372,13 @@ function syncActiveHistoryTurn(event?: Event) {
   activeHistoryTurnId.value = closestTurnId;
 }
 
+function handleViewportScroll(event: Event) {
+  const viewport = event.currentTarget as HTMLElement;
+  syncActiveHistoryTurn(event);
+  updateSelectionMenuPosition(viewport);
+  updateCommentEditorPosition(viewport);
+}
+
 function scrollToHistoryTurn(item: ChatHistoryRailItem) {
   scrollToMessage(item.userMessageId, {
     behavior: "smooth",
@@ -354,6 +416,7 @@ async function submit() {
       role: "user" as const,
       content,
       attachments,
+      comments: data.comments.map((comment) => ({ ...comment })),
       sequence: (current?.messages.at(-1)?.sequence ?? 0) + 1,
       createdAt: String(Date.now()),
     };
@@ -382,6 +445,7 @@ async function submit() {
       {
         content,
         attachments,
+        comments: data.comments.map((comment) => ({ ...comment })),
         profileId: defaultProfile.value?.id,
         model: data.model || undefined,
         fullAccess: data.fullAccess,
@@ -421,12 +485,289 @@ function startEdit(message: SessionMessage) {
   if (sending.value || message.id !== lastUserMessageId.value) return;
   editingMessageId.value = message.id;
   editingContent.value = message.content;
+  data.comments = (message.comments ?? []).map((comment) => ({ ...comment }));
+}
+
+function commentsForMessage(messageId: string) {
+  const byId = new Map<string, NonNullable<SessionMessage["comments"]>[number]>();
+  for (const message of messages.value) {
+    for (const comment of message.comments ?? []) {
+      if (comment.messageId === messageId) byId.set(comment.id, comment);
+    }
+  }
+  for (const comment of data.comments) {
+    if (comment.messageId === messageId) byId.set(comment.id, comment);
+  }
+  return [...byId.values()];
+}
+
+function openCommentAtMarker(
+  messageId: string,
+  commentId: string,
+  event: MouseEvent,
+) {
+  const comment = commentsForMessage(messageId).find(
+    (item) => item.id === commentId,
+  );
+  if (!comment) return;
+  if (!data.comments.some((item) => item.id === comment.id)) {
+    data.comments.push({ ...comment });
+  }
+  const marker = event.target as HTMLElement;
+  const rect = marker.getBoundingClientRect();
+  const position = editorPosition(rect, messageViewport());
+  commentEditor.value = {
+    x: position.x,
+    y: position.y,
+    messageId,
+    selectedText: comment.selectedText ?? "",
+    initialContent: comment.content,
+    editingId: comment.id,
+    startOffset: comment.startOffset,
+    endOffset: comment.endOffset,
+  };
+  void nextTick(() => updateCommentEditorPosition(messageViewport()));
+}
+
+function handleMessageSelection(event: MouseEvent, messageId: string) {
+  const selection = window.getSelection();
+  const text = selection?.toString().trim() ?? "";
+  if (!selection || !text || selection.rangeCount === 0) {
+    selectionMenu.value = undefined;
+    return;
+  }
+  const range = selection.getRangeAt(0);
+  const target = event.currentTarget as HTMLElement;
+  const root = (event.target as HTMLElement).closest<HTMLElement>(
+    '[data-slot="markdown"]',
+  );
+  if (
+    !root ||
+    !target.contains(range.commonAncestorContainer) ||
+    !root.contains(range.startContainer) ||
+    !root.contains(range.endContainer)
+  ) {
+    selectionMenu.value = undefined;
+    return;
+  }
+  const rect = range.getBoundingClientRect();
+  const viewport = messageViewport();
+  const position = viewportPosition(rect, viewport);
+  selectionMenu.value = {
+    x: position.x,
+    y: position.y + 8,
+    messageId,
+    text,
+    startOffset: selectionOffset(root, range.startContainer, range.startOffset),
+    endOffset: selectionOffset(root, range.endContainer, range.endOffset),
+  };
+}
+
+function selectionOffset(root: HTMLElement, container: Node, offset: number) {
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.setEnd(container, offset);
+  return range.toString().length;
+}
+
+function openSelectionComment() {
+  const selected = selectionMenu.value;
+  if (!selected) return;
+  const id = crypto.randomUUID();
+  data.comments.push({
+    id,
+    content: "",
+    selectedText: selected.text,
+    messageId: selected.messageId,
+    startOffset: selected.startOffset,
+    endOffset: selected.endOffset,
+  });
+  commentEditor.value = {
+    x: selected.x,
+    y: selected.y,
+    messageId: selected.messageId,
+    selectedText: selected.text,
+    editingId: id,
+    draft: true,
+    startOffset: selected.startOffset,
+    endOffset: selected.endOffset,
+  };
+  selectionMenu.value = undefined;
+  void nextTick(() => updateCommentEditorPosition(messageViewport()));
+}
+
+function editInputComment(id: string) {
+  const comment = data.comments.find((item) => item.id === id);
+  if (!comment) return;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-comment-id="${CSS.escape(id)}"]`,
+  );
+  const markerRect = marker?.getBoundingClientRect();
+  const viewport = messageViewport();
+  const position =
+    markerRect
+      ? editorPosition(markerRect, viewport)
+      : { x: 8 + viewport.scrollLeft, y: 8 + viewport.scrollTop };
+  commentEditor.value = {
+    x: position.x,
+    y: position.y,
+    messageId: comment.messageId ?? "",
+    selectedText: comment.selectedText ?? "",
+    initialContent: comment.content,
+    editingId: id,
+    startOffset: comment.startOffset,
+    endOffset: comment.endOffset,
+  };
+  void nextTick(() => updateCommentEditorPosition(viewport));
+}
+
+function viewportPosition(
+  rect: DOMRect,
+  viewport: HTMLElement,
+  top = rect.bottom,
+) {
+  const viewportRect = viewport.getBoundingClientRect();
+  const width = 328;
+  return {
+    x: Math.max(
+      8 + viewport.scrollLeft,
+      Math.min(
+        rect.left - viewportRect.left + viewport.scrollLeft,
+        viewport.scrollLeft + viewport.clientWidth - width,
+      ),
+    ),
+    y: Math.max(8 + viewport.scrollTop, top - viewportRect.top + viewport.scrollTop),
+  };
+}
+
+function editorPosition(
+  rect: DOMRect,
+  viewport: HTMLElement,
+  editorHeight = 0,
+) {
+  const viewportRect = viewport.getBoundingClientRect();
+  const top =
+    rect.bottom + editorHeight + 8 > viewportRect.bottom
+      ? rect.top - editorHeight - 8
+      : rect.bottom + 8;
+  return viewportPosition(rect, viewport, top);
+}
+
+function messageViewport() {
+  return (
+    messagePanelRef.value?.querySelector<HTMLElement>(
+      '[data-slot="message-scroller-viewport"]',
+    ) ?? messagePanelRef.value ?? document.documentElement
+  );
+}
+
+function updateCommentEditorPosition(viewport: HTMLElement) {
+  const editor = commentEditor.value;
+  if (!editor) return;
+  const marker = document.querySelector<HTMLElement>(
+    `[data-comment-id="${CSS.escape(editor.editingId ?? "")}"]`,
+  );
+  if (!marker) return;
+  const markerRect = marker.getBoundingClientRect();
+  const editorElement = viewport.querySelector<HTMLElement>(
+    "[data-comment-editor]",
+  );
+  const position = editorPosition(
+    markerRect,
+    viewport,
+    editorElement?.offsetHeight ?? 0,
+  );
+  editor.x = position.x;
+  editor.y = position.y;
+}
+
+function updateSelectionMenuPosition(viewport: HTMLElement) {
+  const menu = selectionMenu.value;
+  if (!menu) return;
+  const root = document.querySelector<HTMLElement>(
+    `[data-message-id="${CSS.escape(menu.messageId)}"] [data-slot="markdown"]`,
+  );
+  if (!root) return;
+  const range = createRangeFromOffsets(root, menu.startOffset, menu.endOffset);
+  if (!range) return;
+  const position = viewportPosition(range.getBoundingClientRect(), viewport);
+  menu.x = position.x;
+  menu.y = position.y + 8;
+}
+
+function createRangeFromOffsets(
+  root: HTMLElement,
+  startOffset: number,
+  endOffset: number,
+) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let cursor = 0;
+  let startNode: Text | undefined;
+  let endNode: Text | undefined;
+  let start = 0;
+  let end = 0;
+  let node = walker.nextNode();
+  while (node) {
+    const textNode = node as Text;
+    const nextCursor = cursor + textNode.data.length;
+    if (!startNode && startOffset >= cursor && startOffset <= nextCursor) {
+      startNode = textNode;
+      start = startOffset - cursor;
+    }
+    if (endOffset >= cursor && endOffset <= nextCursor) {
+      endNode = textNode;
+      end = endOffset - cursor;
+      break;
+    }
+    cursor = nextCursor;
+    node = walker.nextNode();
+  }
+  if (!startNode || !endNode) return;
+  const range = document.createRange();
+  range.setStart(startNode, start);
+  range.setEnd(endNode, end);
+  return range;
+}
+
+function saveComment(content: string) {
+  const editor = commentEditor.value;
+  if (!editor) return;
+  if (editor.editingId) {
+    const comment = data.comments.find((item) => item.id === editor.editingId);
+    if (comment) {
+      comment.content = content;
+      comment.startOffset = editor.startOffset;
+      comment.endOffset = editor.endOffset;
+    }
+    editor.draft = false;
+  } else {
+    data.comments.push({
+      id: crypto.randomUUID(),
+      content,
+      selectedText: editor.selectedText,
+      messageId: editor.messageId,
+      startOffset: editor.startOffset,
+      endOffset: editor.endOffset,
+    });
+  }
+  closeCommentEditor();
+}
+
+function closeCommentEditor() {
+  const editor = commentEditor.value;
+  if (editor?.draft && editor.editingId) {
+    data.comments = data.comments.filter(
+      (comment) => comment.id !== editor.editingId,
+    );
+  }
+  commentEditor.value = undefined;
 }
 
 function cancelEdit() {
   if (sending.value) return;
   editingMessageId.value = undefined;
   editingContent.value = "";
+  data.comments = [];
 }
 
 async function copyMessage(content: string) {
@@ -465,16 +806,18 @@ async function submitEdit(message: SessionMessage) {
   if (
     !sessionId ||
     message.id !== lastUserMessageId.value ||
-    (!content && !message.attachments?.length) ||
+    (!content && !message.attachments?.length && !message.comments?.length) ||
     sending.value
   )
     return;
 
   const current = sessionQuery.data.value;
+  const comments = data.comments.map((comment) => ({ ...comment }));
   const assistantMessageId = crypto.randomUUID();
   const editedUserMessage = {
     ...message,
     content,
+    comments,
     createdAt: String(Date.now()),
   };
   const assistantMessage = {
@@ -504,6 +847,7 @@ async function submitEdit(message: SessionMessage) {
   });
   editingMessageId.value = undefined;
   editingContent.value = "";
+  data.comments = [];
   sending.value = true;
   activeSessionId.value = sessionId;
   try {
@@ -514,6 +858,7 @@ async function submitEdit(message: SessionMessage) {
       {
         content,
         attachments: message.attachments,
+        comments,
         profileId: defaultProfile.value?.id,
         model: data.model || undefined,
         fullAccess: data.fullAccess,

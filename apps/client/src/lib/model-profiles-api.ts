@@ -60,6 +60,7 @@ export type SessionMessageSummary = {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
   attachments?: MessageAttachment[];
+  comments?: MessageComment[];
   sequence: number;
   createdAt: string;
   reasoning?: string;
@@ -76,6 +77,15 @@ export type MessageAttachment = {
   name: string;
   mimeType: string;
   size: number;
+};
+
+export type MessageComment = {
+  id: string;
+  content: string;
+  selectedText?: string;
+  messageId?: string;
+  startOffset?: number;
+  endOffset?: number;
 };
 
 export type SessionStreamEvent =
@@ -294,7 +304,7 @@ export async function uploadAttachment(file: File): Promise<MessageAttachment> {
 
 export function sendSessionMessage(
   id: string,
-  input: { content: string; attachments?: MessageAttachment[]; profileId?: string; model?: string; fullAccess?: boolean },
+  input: { content: string; attachments?: MessageAttachment[]; comments?: MessageComment[]; profileId?: string; model?: string; fullAccess?: boolean },
 ): Promise<SessionDetail> {
   return request<SessionDetail>(
     `/api/sessions/${encodeURIComponent(id)}/messages`,
@@ -307,7 +317,7 @@ export function sendSessionMessage(
 
 export async function streamSessionMessage(
   id: string,
-  input: { content: string; attachments?: MessageAttachment[]; profileId?: string; model?: string; fullAccess?: boolean },
+  input: { content: string; attachments?: MessageAttachment[]; comments?: MessageComment[]; profileId?: string; model?: string; fullAccess?: boolean },
   onEvent: (event: SessionStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
@@ -326,7 +336,7 @@ export async function streamSessionMessage(
 export async function streamEditedSessionMessage(
   id: string,
   messageId: string,
-  input: { content: string; attachments?: MessageAttachment[]; profileId?: string; model?: string; fullAccess?: boolean },
+  input: { content: string; attachments?: MessageAttachment[]; comments?: MessageComment[]; profileId?: string; model?: string; fullAccess?: boolean },
   onEvent: (event: SessionStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {

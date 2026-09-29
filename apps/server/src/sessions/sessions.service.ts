@@ -21,6 +21,8 @@ import type {
   EditMessageDto,
   MessageAttachment,
   MessageAttachmentDto,
+  MessageComment,
+  MessageCommentDto,
   MessageSummary,
   MessageToolCall,
   MessageStreamStatus,
@@ -303,13 +305,20 @@ export class SessionsService {
 
     const content = (input.content ?? '').trim();
     const storedAttachments = this.normalizeAttachments(input.attachments ?? []);
-    if (!content && !storedAttachments.length)
+    const storedComments = this.normalizeComments(input.comments ?? []);
+    if (!content && !storedAttachments.length && !storedComments.length)
       throw new BadRequestException('消息内容或附件不能为空');
     const history = await this.prisma.message.findMany({
       where: { sessionId: id },
       orderBy: { sequence: 'asc' },
     });
-    await this.appendMessage(id, 'user', content, storedAttachments);
+    await this.appendMessage(
+      id,
+      'user',
+      content,
+      storedAttachments,
+      storedComments,
+    );
     const title =
       session.title === '新会话' ? this.makeTitle(content) : session.title;
     await this.prisma.session.update({
@@ -329,7 +338,10 @@ export class SessionsService {
         .filter((message) => ['system', 'user', 'assistant'].includes(message.role))
         .map(async (message) => ({
           role: message.role,
-          content: message.content,
+          content: this.contentWithComments(
+            message.content,
+            this.parseComments(message.comments),
+          ),
           attachments: await this.prepareAttachments(
             this.parseAttachments(message.attachments),
           ),
@@ -337,7 +349,11 @@ export class SessionsService {
     );
     const messages = [
       ...historyMessages,
-      { role: 'user', content, attachments: await this.prepareAttachments(storedAttachments) },
+      {
+        role: 'user',
+        content: this.contentWithComments(content, storedComments),
+        attachments: await this.prepareAttachments(storedAttachments),
+      },
     ];
     const startedAt = BigInt(Date.now());
     const agentContext = this.createAgentContext(session.workspace.path, session.workspace.folders, input.fullAccess);
@@ -471,6 +487,7 @@ export class SessionsService {
     role: string,
     content: string,
     attachments: MessageAttachment[] = [],
+    comments: MessageComment[] = [],
   ) {
     const last = await this.prisma.message.findFirst({
       where: { sessionId },
@@ -483,6 +500,7 @@ export class SessionsService {
         role,
         content,
         attachments: attachments.length ? JSON.stringify(attachments) : null,
+        comments: comments.length ? JSON.stringify(comments) : null,
         sequence: (last?.sequence ?? 0) + 1,
         createdAt: BigInt(Date.now()),
       },
@@ -728,6 +746,7 @@ export class SessionsService {
     role: string;
     content: string;
     attachments: string | null;
+    comments: string | null;
     sequence: number;
     createdAt: bigint;
     reasoning: string | null;
@@ -744,6 +763,9 @@ export class SessionsService {
       content: message.content,
       ...(message.attachments
         ? { attachments: this.parseAttachments(message.attachments) }
+        : {}),
+      ...(message.comments
+        ? { comments: this.parseComments(message.comments) }
         : {}),
       sequence: message.sequence,
       createdAt: message.createdAt.toString(),
@@ -777,6 +799,50 @@ export class SessionsService {
     } catch {
       return [];
     }
+  }
+
+  private parseComments(value: string | null | undefined): MessageComment[] {
+    if (!value) return [];
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as MessageComment[]) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private normalizeComments(comments: MessageCommentDto[]): MessageComment[] {
+    return comments
+      .map((comment) => ({
+        id: comment.id,
+        content: (comment.content ?? '').trim(),
+        ...(comment.selectedText?.trim()
+          ? { selectedText: comment.selectedText.trim() }
+          : {}),
+        ...(comment.messageId ? { messageId: comment.messageId } : {}),
+        ...(Number.isInteger(comment.startOffset)
+          ? { startOffset: comment.startOffset }
+          : {}),
+        ...(Number.isInteger(comment.endOffset)
+          ? { endOffset: comment.endOffset }
+          : {}),
+      }));
+  }
+
+  private contentWithComments(
+    content: string,
+    comments: MessageComment[],
+  ): string {
+    if (!comments.length) return content;
+    const notes = comments
+      .map((comment, index) => {
+        const selected = comment.selectedText
+          ? `\n选中文本：${comment.selectedText}`
+          : '';
+        return `${index + 1}.${selected}\n评论：${comment.content}`;
+      })
+      .join('\n\n');
+    return `${content}\n\n用户针对这段内容的评论：\n${notes}`;
   }
 
   private normalizeAttachments(attachments: MessageAttachmentDto[]): MessageAttachment[] {

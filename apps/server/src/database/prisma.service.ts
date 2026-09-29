@@ -82,6 +82,7 @@ export class PrismaService
         role TEXT NOT NULL,
         content TEXT NOT NULL,
         attachments TEXT,
+        comments TEXT,
         reasoning TEXT,
         tool_calls TEXT,
         stream_status TEXT,
@@ -147,6 +148,7 @@ export class PrismaService
     const additions = [
       ['reasoning', 'TEXT'],
       ['attachments', 'TEXT'],
+      ['comments', 'TEXT'],
       ['tool_calls', 'TEXT'],
       ['stream_status', 'TEXT'],
       ['started_at', 'BIGINT'],

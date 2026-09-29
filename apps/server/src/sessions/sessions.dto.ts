@@ -21,6 +21,32 @@ export class MessageAttachmentDto {
   size!: number;
 }
 
+export class MessageCommentDto {
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @IsString()
+  @IsOptional()
+  content!: string;
+
+  @IsOptional()
+  @IsString()
+  selectedText?: string;
+
+  @IsOptional()
+  @IsString()
+  messageId?: string;
+
+  @IsOptional()
+  @IsInt()
+  startOffset?: number;
+
+  @IsOptional()
+  @IsInt()
+  endOffset?: number;
+}
+
 export class CreateSessionDto {
   @IsString()
   @IsNotEmpty()
@@ -55,6 +81,12 @@ export class SendMessageDto {
   @ValidateNested({ each: true })
   @Type(() => MessageAttachmentDto)
   attachments?: MessageAttachmentDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MessageCommentDto)
+  comments?: MessageCommentDto[];
 }
 
 export class EditMessageDto extends SendMessageDto {
@@ -84,6 +116,7 @@ export type MessageSummary = {
   role: string;
   content: string;
   attachments?: MessageAttachment[];
+  comments?: MessageComment[];
   sequence: number;
   createdAt: string;
   toolCalls?: MessageToolCall[];
@@ -98,6 +131,15 @@ export type MessageAttachment = {
   name: string;
   mimeType: string;
   size: number;
+};
+
+export type MessageComment = {
+  id: string;
+  content: string;
+  selectedText?: string;
+  messageId?: string;
+  startOffset?: number;
+  endOffset?: number;
 };
 
 export type MessageStreamStatus =
