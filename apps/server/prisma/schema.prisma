@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:../../packages/agent-storage/agent.db"
+  url      = "file:../database/agent.db"
 }
 
 model ModelProfile {
