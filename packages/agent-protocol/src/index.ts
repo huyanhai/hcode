@@ -48,7 +48,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z.object({ ...commandBase, type: z.literal("workspace/list"), payload: z.object({}).optional() }),
   z.object({ ...commandBase, type: z.literal("workspace/upsert"), payload: z.object({ id: z.string().optional(), path: z.string().min(1), name: z.string().min(1).optional() }) }),
   z.object({ ...commandBase, type: z.literal("session/list"), payload: z.object({ workspaceId: z.string().optional() }).optional() }),
-  z.object({ ...commandBase, type: z.literal("session/create"), payload: z.object({ workspaceId: z.string().min(1), title: z.string().min(1).optional() }) }),
+  z.object({ ...commandBase, type: z.literal("session/create"), payload: z.object({ workspaceId: z.string().min(1).optional(), title: z.string().min(1).optional() }) }),
   z.object({ ...commandBase, type: z.literal("session/open"), payload: z.object({ sessionId: z.string().min(1) }) }),
   z.object({ ...commandBase, type: z.literal("turn/start"), payload: z.object({ sessionId: z.string().min(1), profileId: z.string().min(1), content: z.string().min(1), permissionMode: permissionModeSchema.optional() }) }),
   z.object({ ...commandBase, type: z.literal("turn/interrupt"), payload: z.object({ turnId: z.string().min(1) }) }),
@@ -92,7 +92,7 @@ export const workspaceSchema = z.object({
 
 export const sessionSchema = z.object({
   id: z.string(),
-  workspaceId: z.string(),
+  workspaceId: z.string().nullable(),
   title: z.string(),
   status: z.enum(["active", "archived"]),
   createdAt: z.number().int(),

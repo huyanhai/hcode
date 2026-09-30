@@ -48,7 +48,7 @@ export type WorkspaceFolder = {
 
 export type SessionSummary = {
   id: string;
-  workspaceId: string;
+  workspaceId: string | null;
   title: string;
   status: string;
   createdAt: string;
@@ -274,7 +274,7 @@ export function listSessions(workspaceId?: string): Promise<SessionSummary[]> {
   return request<SessionSummary[]>(`/api/sessions${query}`);
 }
 
-export function createSession(input: { workspaceId: string; title?: string }): Promise<SessionSummary> {
+export function createSession(input: { workspaceId?: string; title?: string }): Promise<SessionSummary> {
   return request<SessionSummary>("/api/sessions/create", {
     method: "POST",
     body: JSON.stringify(input),

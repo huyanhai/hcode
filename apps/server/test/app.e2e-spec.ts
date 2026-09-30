@@ -245,6 +245,32 @@ describe('AppController (e2e)', () => {
     expect(listedAfterArchive.body.data).toEqual([]);
   });
 
+  it('creates sessions without a workspace for the recent group', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/sessions/create')
+      .send({})
+      .expect(200);
+
+    expect(created.body).toEqual({
+      code: '0',
+      data: expect.objectContaining({
+        workspaceId: null,
+        title: '新会话',
+        status: 'active',
+      }),
+      message: '',
+    });
+
+    const listed = await request(app.getHttpServer())
+      .get('/api/sessions')
+      .expect(200);
+    expect(listed.body.data).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: created.body.data.id, workspaceId: null }),
+      ]),
+    );
+  });
+
   it('edits, archives and deletes workspaces', async () => {
     const path = join(databaseDirectory, 'workspace-actions');
     const created = await request(app.getHttpServer())

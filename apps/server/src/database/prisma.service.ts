@@ -66,13 +66,14 @@ export class PrismaService
     await this.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS sessions (
         id TEXT PRIMARY KEY,
-        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
         title TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'active',
         created_at BIGINT NOT NULL,
         updated_at BIGINT NOT NULL
       )
     `);
+    await this.migrateSessionWorkspaceColumn();
     await this.$executeRawUnsafe(
       'CREATE INDEX IF NOT EXISTS idx_sessions_workspace_updated ON sessions (workspace_id, updated_at)',
     );
@@ -172,6 +173,38 @@ export class PrismaService
       if (!existing.has(name)) {
         await this.$executeRawUnsafe(`ALTER TABLE messages ADD COLUMN ${name} ${type}`);
       }
+    }
+  }
+
+  private async migrateSessionWorkspaceColumn(): Promise<void> {
+    const columns = await this.$queryRawUnsafe<Array<{ name: string; notnull: number }>>(
+      'PRAGMA table_info(sessions)',
+    );
+    const workspaceColumn = columns.find((column) => column.name === 'workspace_id');
+    if (!workspaceColumn?.notnull) return;
+
+    await this.$executeRawUnsafe('PRAGMA foreign_keys = OFF');
+    try {
+      await this.$executeRawUnsafe(`
+        CREATE TABLE sessions_workspace_migration (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
+          title TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active',
+          created_at BIGINT NOT NULL,
+          updated_at BIGINT NOT NULL
+        )
+      `);
+      await this.$executeRawUnsafe(`
+        INSERT INTO sessions_workspace_migration
+        SELECT id, workspace_id, title, status, created_at, updated_at FROM sessions
+      `);
+      await this.$executeRawUnsafe('DROP TABLE sessions');
+      await this.$executeRawUnsafe(
+        'ALTER TABLE sessions_workspace_migration RENAME TO sessions',
+      );
+    } finally {
+      await this.$executeRawUnsafe('PRAGMA foreign_keys = ON');
     }
   }
 

@@ -71,6 +71,45 @@
             </ActionsButton>
           </FoldMenus>
         </template>
+        <ActionsButton @click="showRecent = !showRecent">
+          <div class="text-sm text-muted-foreground flex gap-1 items-center">
+            最近
+            <ChevronDown :size="ICON_SIZE" v-if="showRecent" />
+            <ChevronRight :size="ICON_SIZE" v-else />
+          </div>
+          <template #action>
+            <button
+              class="button-hover"
+              type="button"
+              @click.stop="void createRecentSession()"
+            >
+              <Plus :size="ICON_SIZE" />
+            </button>
+          </template>
+        </ActionsButton>
+        <template v-if="showRecent">
+          <p v-if="!recentSessions.length" class="p-2 text-sm opacity-30">
+            暂无会话
+          </p>
+          <ActionsButton
+            v-for="session in recentSessions"
+            :key="session.id"
+            :class="session.id === selectedSessionId ? 'bg-muted' : ''"
+            @click="selectSession(null, session.id)"
+          >
+            <div class="pl-5">{{ session.title }}</div>
+            <template #action>
+              <button
+                class="button-hover shrink-0"
+                type="button"
+                :disabled="archiveSessionMutation.isPending.value"
+                @click.stop="archiveSessionMutation.mutate(session.id)"
+              >
+                <Archive :size="ICON_SIZE" />
+              </button>
+            </template>
+          </ActionsButton>
+        </template>
       </div>
     </div>
     <Settings class="border-t p-2" />
@@ -176,6 +215,7 @@ import {
 import { cn } from "@/lib/utils.js";
 
 const showProject = ref(true);
+const showRecent = ref(true);
 
 const workspaceDialogOpen = ref(false);
 const workspaceDialogMode = ref<"create" | "edit">("create");
@@ -201,10 +241,15 @@ const sessionsByWorkspace = computed<Record<string, SessionSummary[]>>(() => {
   return (sessionsQuery.data.value ?? []).reduce<
     Record<string, SessionSummary[]>
   >((groups, session) => {
-    (groups[session.workspaceId] ??= []).push(session);
+    if (session.workspaceId) {
+      (groups[session.workspaceId] ??= []).push(session);
+    }
     return groups;
   }, {});
 });
+const recentSessions = computed(() =>
+  (sessionsQuery.data.value ?? []).filter((session) => !session.workspaceId),
+);
 const selectedSessionId = useSessionSelection();
 const activeSessionId = useSessionActivity();
 
@@ -219,7 +264,7 @@ const createWorkspaceMutation = useMutation({
 const createSessionMutation = useMutation({
   mutationFn: createSession,
   onSuccess: (session) => {
-    selectedWorkspaceId.value = session.workspaceId;
+    selectedWorkspaceId.value = session.workspaceId ?? "";
     selectedSessionId.value = session.id;
     queryClient.invalidateQueries({ queryKey: ["sessions"] });
   },
@@ -292,16 +337,16 @@ function startNewSessionBySpace(item: WorkspaceSummary) {
 }
 
 function startNewSession() {
-  if (selectedWorkspaceId.value) {
-    void createWorkspaceSession(selectedWorkspaceId.value);
-    return;
+  void createRecentSession();
+}
+
+async function createRecentSession() {
+  if (createSessionMutation.isPending.value) return;
+  try {
+    await createSessionMutation.mutateAsync({});
+  } catch {
+    // onError already shows the request error.
   }
-  if (workspaces.value[0]) {
-    selectedWorkspaceId.value = workspaces.value[0].id;
-    void createWorkspaceSession(workspaces.value[0].id);
-    return;
-  }
-  openCreateWorkspaceDialog();
 }
 
 function openCreateWorkspaceDialog() {
@@ -349,8 +394,8 @@ async function createWorkspaceSession(workspaceId: string) {
   }
 }
 
-function selectSession(workspaceId: string, sessionId: string) {
-  selectedWorkspaceId.value = workspaceId;
+function selectSession(workspaceId: string | null, sessionId: string) {
+  selectedWorkspaceId.value = workspaceId ?? "";
   selectedSessionId.value = sessionId;
 }
 
@@ -421,6 +466,13 @@ watch(
       selectedWorkspaceId.value = "";
       return;
     }
+    const selectedSession = (sessionsQuery.data.value ?? []).find(
+      (session) => session.id === selectedSessionId.value,
+    );
+    if (selectedSession && !selectedSession.workspaceId) {
+      selectedWorkspaceId.value = "";
+      return;
+    }
     if (
       !items.some((workspace) => workspace.id === selectedWorkspaceId.value)
     ) {
@@ -442,7 +494,7 @@ watch(
     );
     const next = selected ?? items[0];
     selectedSessionId.value = next.id;
-    selectedWorkspaceId.value = next.workspaceId;
+    selectedWorkspaceId.value = next.workspaceId ?? "";
   },
   { immediate: true },
 );

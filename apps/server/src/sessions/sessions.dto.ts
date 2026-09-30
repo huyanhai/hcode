@@ -48,9 +48,10 @@ export class MessageCommentDto {
 }
 
 export class CreateSessionDto {
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  workspaceId!: string;
+  workspaceId?: string;
 
   @IsOptional()
   @IsString()
@@ -102,7 +103,7 @@ export class RespondApprovalDto {
 
 export type SessionSummary = {
   id: string;
-  workspaceId: string;
+  workspaceId: string | null;
   title: string;
   status: string;
   createdAt: string;

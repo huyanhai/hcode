@@ -78,15 +78,15 @@ export class SessionsService {
 
   // 创建新会话
   async create(input: CreateSessionDto): Promise<SessionSummary> {
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: input.workspaceId },
-    });
-    if (!workspace) throw new NotFoundException('工作区不存在');
+    const workspace = input.workspaceId
+      ? await this.prisma.workspace.findUnique({ where: { id: input.workspaceId } })
+      : null;
+    if (input.workspaceId && !workspace) throw new NotFoundException('工作区不存在');
     const title = input.title?.trim() || '新会话';
     if (title === '新会话') {
       // 判断当前项目下是否存在新的会话，存在就不新建会话
       const emptySession = await this.prisma.session.findFirst({
-        where: { workspaceId: workspace.id, status: 'active', title },
+        where: { workspaceId: workspace?.id ?? null, status: 'active', title },
         orderBy: { createdAt: 'desc' },
         include: { _count: { select: { messages: true } } },
       });
@@ -97,7 +97,7 @@ export class SessionsService {
     const session = await this.prisma.session.create({
       data: {
         id: randomUUID(),
-        workspaceId: workspace.id,
+        workspaceId: workspace?.id ?? null,
         title,
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -108,7 +108,10 @@ export class SessionsService {
 
   // 查询会话历史
   async open(id: string): Promise<SessionDetail> {
-    const session = await this.prisma.session.findUnique({ where: { id } });
+    const session = await this.prisma.session.findUnique({
+      where: { id },
+      include: { workspace: true },
+    });
     if (!session) throw new NotFoundException('会话不存在');
     const messages = await this.prisma.message.findMany({
       where: { sessionId: id },
@@ -294,6 +297,12 @@ export class SessionsService {
       include: { workspace: true },
     });
     if (!session) throw new NotFoundException('会话不存在');
+    const runtimeWorkspace =
+      session.workspace ??
+      (await this.prisma.workspace.findFirst({
+        where: { status: 'active' },
+        orderBy: { lastOpenedAt: 'desc' },
+      }));
     const profile = input.profileId
       ? await this.prisma.modelProfile.findUnique({
           where: { id: input.profileId },
@@ -357,7 +366,11 @@ export class SessionsService {
       },
     ];
     const startedAt = BigInt(Date.now());
-    const agentContext = this.createAgentContext(session.workspace.path, session.workspace.folders, input.fullAccess);
+    const agentContext = this.createAgentContext(
+      runtimeWorkspace?.path ?? process.cwd(),
+      runtimeWorkspace?.folders ?? null,
+      input.fullAccess,
+    );
     let text = '';
     const toolCalls: MessageToolCall[] = [];
     let streamStatus: MessageStreamStatus = 'completed';
@@ -724,7 +737,7 @@ export class SessionsService {
 
   private toSummary(session: {
     id: string;
-    workspaceId: string;
+    workspaceId: string | null;
     title: string;
     status: string;
     createdAt: bigint;
