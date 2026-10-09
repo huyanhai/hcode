@@ -1,23 +1,11 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 function databaseUrl(): string {
   if (process.env.HCODE_DATABASE_URL) return process.env.HCODE_DATABASE_URL;
 
-  const fromRepositoryRoot = resolve(
-    process.cwd(),
-    'packages/agent-storage/agent.db',
-  );
-  const fromServerDirectory = resolve(
-    process.cwd(),
-    '../../packages/agent-storage/agent.db',
-  );
-  const path = existsSync(resolve(process.cwd(), 'packages/agent-storage'))
-    ? fromRepositoryRoot
-    : fromServerDirectory;
-  return `file:${path}`;
+  return `file:${resolve(__dirname, '../../database/agent.db')}`;
 }
 
 @Injectable()
@@ -171,16 +159,20 @@ export class PrismaService
     ] as const;
     for (const [name, type] of additions) {
       if (!existing.has(name)) {
-        await this.$executeRawUnsafe(`ALTER TABLE messages ADD COLUMN ${name} ${type}`);
+        await this.$executeRawUnsafe(
+          `ALTER TABLE messages ADD COLUMN ${name} ${type}`,
+        );
       }
     }
   }
 
   private async migrateSessionWorkspaceColumn(): Promise<void> {
-    const columns = await this.$queryRawUnsafe<Array<{ name: string; notnull: number }>>(
-      'PRAGMA table_info(sessions)',
+    const columns = await this.$queryRawUnsafe<
+      Array<{ name: string; notnull: number }>
+    >('PRAGMA table_info(sessions)');
+    const workspaceColumn = columns.find(
+      (column) => column.name === 'workspace_id',
     );
-    const workspaceColumn = columns.find((column) => column.name === 'workspace_id');
     if (!workspaceColumn?.notnull) return;
 
     await this.$executeRawUnsafe('PRAGMA foreign_keys = OFF');
@@ -224,10 +216,14 @@ export class PrismaService
       'PRAGMA table_info(workspaces)',
     );
     if (!columns.some((column) => column.name === 'folders')) {
-      await this.$executeRawUnsafe('ALTER TABLE workspaces ADD COLUMN folders TEXT');
+      await this.$executeRawUnsafe(
+        'ALTER TABLE workspaces ADD COLUMN folders TEXT',
+      );
     }
-    const rows = await this.$queryRawUnsafe<Array<{ id: string; path: string; folders: string | null }>>(
-      'SELECT id, path, folders FROM workspaces WHERE folders IS NULL OR folders = \'\'',
+    const rows = await this.$queryRawUnsafe<
+      Array<{ id: string; path: string; folders: string | null }>
+    >(
+      "SELECT id, path, folders FROM workspaces WHERE folders IS NULL OR folders = ''",
     );
     for (const row of rows) {
       await this.$executeRaw`
