@@ -13,11 +13,17 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit, OnModuleDestroy
 {
+  private initialization?: Promise<void>;
   constructor() {
     super({ datasources: { db: { url: databaseUrl() } } });
   }
 
   async onModuleInit(): Promise<void> {
+    this.initialization ??= this.initialize();
+    await this.initialization;
+  }
+
+  private async initialize(): Promise<void> {
     await this.$connect();
     await this.migrateModelProfilesTimestampColumns();
     await this.$executeRawUnsafe(`
@@ -51,43 +57,6 @@ export class PrismaService
     `);
     await this.migrateWorkspaceStatusColumn();
     await this.migrateWorkspaceFoldersColumn();
-    await this.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
-        title TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'active',
-        created_at BIGINT NOT NULL,
-        updated_at BIGINT NOT NULL
-      )
-    `);
-    await this.migrateSessionWorkspaceColumn();
-    await this.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS idx_sessions_workspace_updated ON sessions (workspace_id, updated_at)',
-    );
-    await this.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-        turn_id TEXT,
-        role TEXT NOT NULL,
-        content TEXT NOT NULL,
-        attachments TEXT,
-        comments TEXT,
-        reasoning TEXT,
-        tool_calls TEXT,
-        stream_status TEXT,
-        started_at BIGINT,
-        completed_at BIGINT,
-        sequence INTEGER NOT NULL,
-        created_at BIGINT NOT NULL,
-        UNIQUE(session_id, sequence)
-      )
-    `);
-    await this.$executeRawUnsafe(
-      'CREATE INDEX IF NOT EXISTS idx_messages_session_sequence ON messages (session_id, sequence)',
-    );
-    await this.migrateMessageStreamColumns();
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -140,63 +109,6 @@ export class PrismaService
       await this.$executeRawUnsafe(
         "ALTER TABLE model_profiles ADD COLUMN request_type TEXT NOT NULL DEFAULT 'response'",
       );
-    }
-  }
-
-  private async migrateMessageStreamColumns(): Promise<void> {
-    const columns = await this.$queryRawUnsafe<Array<{ name: string }>>(
-      'PRAGMA table_info(messages)',
-    );
-    const existing = new Set(columns.map((column) => column.name));
-    const additions = [
-      ['reasoning', 'TEXT'],
-      ['attachments', 'TEXT'],
-      ['comments', 'TEXT'],
-      ['tool_calls', 'TEXT'],
-      ['stream_status', 'TEXT'],
-      ['started_at', 'BIGINT'],
-      ['completed_at', 'BIGINT'],
-    ] as const;
-    for (const [name, type] of additions) {
-      if (!existing.has(name)) {
-        await this.$executeRawUnsafe(
-          `ALTER TABLE messages ADD COLUMN ${name} ${type}`,
-        );
-      }
-    }
-  }
-
-  private async migrateSessionWorkspaceColumn(): Promise<void> {
-    const columns = await this.$queryRawUnsafe<
-      Array<{ name: string; notnull: number }>
-    >('PRAGMA table_info(sessions)');
-    const workspaceColumn = columns.find(
-      (column) => column.name === 'workspace_id',
-    );
-    if (!workspaceColumn?.notnull) return;
-
-    await this.$executeRawUnsafe('PRAGMA foreign_keys = OFF');
-    try {
-      await this.$executeRawUnsafe(`
-        CREATE TABLE sessions_workspace_migration (
-          id TEXT PRIMARY KEY,
-          workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL,
-          title TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'active',
-          created_at BIGINT NOT NULL,
-          updated_at BIGINT NOT NULL
-        )
-      `);
-      await this.$executeRawUnsafe(`
-        INSERT INTO sessions_workspace_migration
-        SELECT id, workspace_id, title, status, created_at, updated_at FROM sessions
-      `);
-      await this.$executeRawUnsafe('DROP TABLE sessions');
-      await this.$executeRawUnsafe(
-        'ALTER TABLE sessions_workspace_migration RENAME TO sessions',
-      );
-    } finally {
-      await this.$executeRawUnsafe('PRAGMA foreign_keys = ON');
     }
   }
 

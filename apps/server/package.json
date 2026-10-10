@@ -21,10 +21,10 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "pnpm prisma:generate && jest --config ./test/jest-e2e.json"
+    "test:e2e": "pnpm prisma:generate && NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
-    "@hcode/agent-core": "workspace:*",
+    "@hcode/runtime": "workspace:*",
     "@imagekit/nodejs": "7.12.1",
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",

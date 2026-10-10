@@ -1,6 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
+import { SessionsService } from '../sessions/sessions.service';
 import type {
   CreateWorkspaceDto,
   UpdateWorkspaceDto,
@@ -9,7 +14,10 @@ import type {
 
 @Injectable()
 export class WorkspacesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sessions: SessionsService,
+  ) {}
 
   async list(): Promise<WorkspaceSummary[]> {
     const workspaces = await this.prisma.$queryRaw<WorkspaceRow[]>`
@@ -69,23 +77,17 @@ export class WorkspacesService {
   async delete(id: string): Promise<{ id: string }> {
     const workspace = await this.prisma.workspace.findUnique({ where: { id } });
     if (!workspace) throw new NotFoundException('项目不存在');
-    await this.prisma.$transaction([
-      this.prisma.session.deleteMany({ where: { workspaceId: id } }),
-      this.prisma.workspace.delete({ where: { id } }),
-    ]);
+    await this.sessions.archiveWorkspace(id);
+    await this.prisma.workspace.delete({ where: { id } });
     return { id };
   }
 
   async archive(id: string): Promise<WorkspaceSummary> {
     const workspace = await this.prisma.workspace.findUnique({ where: { id } });
     if (!workspace) throw new NotFoundException('项目不存在');
-    await this.prisma.$transaction([
-      this.prisma.$executeRaw`UPDATE workspaces SET status = 'archived' WHERE id = ${id}`,
-      this.prisma.session.updateMany({
-        where: { workspaceId: id, status: 'active' },
-        data: { status: 'archived', updatedAt: BigInt(Date.now()) },
-      }),
-    ]);
+    await this.sessions.archiveWorkspace(id);
+    await this.prisma
+      .$executeRaw`UPDATE workspaces SET status = 'archived' WHERE id = ${id}`;
     const archived = await this.prisma.$queryRaw<WorkspaceRow[]>`
       SELECT id, name, path, folders, status, created_at AS createdAt, last_opened_at AS lastOpenedAt
       FROM workspaces WHERE id = ${id}
@@ -94,22 +96,34 @@ export class WorkspacesService {
     return this.toSummary(archived[0]);
   }
 
-  private normalizeFolders(input: { path?: string; folders?: string[] }): string[] {
-    const values = input.folders?.length ? input.folders : input.path ? [input.path] : [];
-    const folders = [...new Set(values.map((folder) => folder.trim()).filter(Boolean))];
+  private normalizeFolders(input: {
+    path?: string;
+    folders?: string[];
+  }): string[] {
+    const values = input.folders?.length
+      ? input.folders
+      : input.path
+        ? [input.path]
+        : [];
+    const folders = [
+      ...new Set(values.map((folder) => folder.trim()).filter(Boolean)),
+    ];
     if (!folders.length) throw new BadRequestException('至少选择一个文件夹');
     return folders;
   }
 
-  private toSummary(workspace: {
-    id: string;
-    name: string;
-    path: string;
-    folders?: string | null;
-    createdAt: bigint;
-    lastOpenedAt: bigint;
-    status?: string;
-  }, status = 'active'): WorkspaceSummary {
+  private toSummary(
+    workspace: {
+      id: string;
+      name: string;
+      path: string;
+      folders?: string | null;
+      createdAt: bigint;
+      lastOpenedAt: bigint;
+      status?: string;
+    },
+    status = 'active',
+  ): WorkspaceSummary {
     const paths = this.parseFolders(workspace.folders, workspace.path);
     return {
       id: workspace.id,
@@ -122,11 +136,21 @@ export class WorkspacesService {
     };
   }
 
-  private parseFolders(value: string | null | undefined, fallback: string): string[] {
+  private parseFolders(
+    value: string | null | undefined,
+    fallback: string,
+  ): string[] {
     try {
       const parsed = JSON.parse(value ?? '');
       if (Array.isArray(parsed)) {
-        const folders = [...new Set(parsed.filter((item): item is string => typeof item === 'string').map((item) => item.trim()).filter(Boolean))];
+        const folders = [
+          ...new Set(
+            parsed
+              .filter((item): item is string => typeof item === 'string')
+              .map((item) => item.trim())
+              .filter(Boolean),
+          ),
+        ];
         if (folders.length) return folders;
       }
     } catch {

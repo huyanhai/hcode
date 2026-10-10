@@ -15,7 +15,13 @@ export function startServer() {
 
   const serverProcess = fork(serverPath, [], {
     stdio: "inherit",
-    env: { ...process.env, PORT: "3000" },
+    env: {
+      ...process.env,
+      PORT: "3000",
+      ...(app.isPackaged
+        ? { HCODE_PI_SESSION_DB: path.join(app.getPath("userData"), "pi-sessions.sqlite") }
+        : {}),
+    },
   });
 
   return serverProcess;

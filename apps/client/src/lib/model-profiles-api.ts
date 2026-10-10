@@ -3,6 +3,7 @@ import type {
   ResponseTimelineItem,
   ResponseToolCall,
 } from "@/components/response-progress";
+import type { PiStreamEvent } from "./pi-events";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
@@ -51,6 +52,7 @@ export type SessionSummary = {
   workspaceId: string | null;
   title: string;
   status: string;
+  persistence: "durable" | "memory";
   createdAt: string;
   updatedAt: string;
 };
@@ -65,6 +67,7 @@ export type SessionMessageSummary = {
   comments?: MessageComment[];
   sequence: number;
   createdAt: string;
+  /** In-flight Pi thinking only; completed history never includes it. */
   reasoning?: string;
   toolCalls?: ResponseToolCall[];
   timeline?: ResponseTimelineItem[];
@@ -89,94 +92,6 @@ export type MessageComment = {
   startOffset?: number;
   endOffset?: number;
 };
-
-export type SessionStreamEvent =
-  | { type: "text"; text: string; itemId?: string; contentIndex?: number }
-  | {
-      type: "reasoning";
-      text: string;
-      itemId?: string;
-      contentIndex?: number;
-    }
-  | {
-      type: "tool-call";
-      toolCallId: string;
-      toolName: string;
-      input: unknown;
-      itemId?: string;
-      rawArguments?: string;
-    }
-  | {
-      type: "tool-call-delta";
-      toolCallId: string;
-      delta: string;
-      itemId?: string;
-      arguments?: string;
-      done?: boolean;
-    }
-  | {
-      type: "output-item";
-      itemId: string;
-      outputIndex?: number;
-      status: "added" | "done";
-      item: unknown;
-    }
-  | {
-      type: "content-part";
-      itemId: string;
-      contentIndex?: number;
-      outputIndex?: number;
-      status: "added" | "done" | "updated";
-      part: unknown;
-    }
-  | {
-      type: "tool-progress";
-      toolName: string;
-      status: string;
-      itemId?: string;
-      outputIndex?: number;
-      data: unknown;
-    }
-  | {
-      type: "media";
-      kind: "audio" | "audio-transcript" | "image";
-      status: "delta" | "done" | "partial";
-      data?: string;
-      itemId?: string;
-      outputIndex?: number;
-    }
-  | {
-      type: "refusal";
-      text: string;
-      done?: boolean;
-      itemId?: string;
-      contentIndex?: number;
-    }
-  | {
-      type: "response-lifecycle";
-      phase:
-        | "queued"
-        | "created"
-        | "in-progress"
-        | "compacting"
-        | "completed"
-        | "failed"
-        | "incomplete";
-      responseId?: string;
-      response?: unknown;
-      sourceType: string;
-    }
-  | {
-      type: "provider-event";
-      provider: string;
-      sourceType: string;
-      payload: unknown;
-    }
-  | { type: "approval"; approvalId: string; toolCallId: string; toolName: string; input: unknown }
-  | { type: "tool-result"; toolCallId: string; toolName: string; output: unknown }
-  | { type: "finish"; text: string; responseMessages: unknown[]; awaitingApproval: boolean }
-  | { type: "done"; text: string; awaitingApproval?: boolean }
-  | { type: "error"; message?: string; provider?: string; sourceType?: string; code?: string };
 
 export type SessionDetail = {
   session: SessionSummary;
@@ -237,7 +152,10 @@ export function listWorkspaces(): Promise<WorkspaceSummary[]> {
   return request<WorkspaceSummary[]>("/api/workspaces");
 }
 
-export function createWorkspace(input: { name: string; folders: string[] }): Promise<WorkspaceSummary> {
+export function createWorkspace(input: {
+  name: string;
+  folders: string[];
+}): Promise<WorkspaceSummary> {
   return request<WorkspaceSummary>("/api/workspaces/create", {
     method: "POST",
     body: JSON.stringify(input),
@@ -270,11 +188,17 @@ export function archiveWorkspace(id: string): Promise<WorkspaceSummary> {
 }
 
 export function listSessions(workspaceId?: string): Promise<SessionSummary[]> {
-  const query = workspaceId ? `?workspaceId=${encodeURIComponent(workspaceId)}` : "";
+  const query = workspaceId
+    ? `?workspaceId=${encodeURIComponent(workspaceId)}`
+    : "";
   return request<SessionSummary[]>(`/api/sessions${query}`);
 }
 
-export function createSession(input: { workspaceId?: string; title?: string }): Promise<SessionSummary> {
+export function createSession(input: {
+  workspaceId?: string;
+  title?: string;
+  persistence?: "durable" | "memory";
+}): Promise<SessionSummary> {
   return request<SessionSummary>("/api/sessions/create", {
     method: "POST",
     body: JSON.stringify(input),
@@ -294,19 +218,28 @@ export function openSession(id: string): Promise<SessionDetail> {
 
 export async function uploadAttachment(file: File): Promise<MessageAttachment> {
   const form = new FormData();
-  form.append('file', file);
+  form.append("file", file);
   const response = await fetch(`${API_BASE_URL}/api/files/upload`, {
-    method: 'POST',
+    method: "POST",
     body: form,
   });
   const body = (await response.json()) as ApiResponse<MessageAttachment>;
-  if (!response.ok || body.code !== '0') throw new Error(body.message || '附件上传失败');
+  if (!response.ok || body.code !== "0")
+    throw new Error(body.message || "附件上传失败");
   return body.data;
 }
 
 export function sendSessionMessage(
   id: string,
-  input: { content: string; attachments?: MessageAttachment[]; comments?: MessageComment[]; profileId?: string; model?: string; fullAccess?: boolean },
+  input: {
+    content: string;
+    attachments?: MessageAttachment[];
+    comments?: MessageComment[];
+    profileId?: string;
+    model?: string;
+    fullAccess?: boolean;
+    whenBusy?: 'followUp' | 'steer';
+  },
 ): Promise<SessionDetail> {
   return request<SessionDetail>(
     `/api/sessions/${encodeURIComponent(id)}/messages`,
@@ -319,8 +252,16 @@ export function sendSessionMessage(
 
 export async function streamSessionMessage(
   id: string,
-  input: { content: string; attachments?: MessageAttachment[]; comments?: MessageComment[]; profileId?: string; model?: string; fullAccess?: boolean },
-  onEvent: (event: SessionStreamEvent) => void,
+  input: {
+    content: string;
+    attachments?: MessageAttachment[];
+    comments?: MessageComment[];
+    profileId?: string;
+    model?: string;
+    fullAccess?: boolean;
+    whenBusy?: 'followUp' | 'steer';
+  },
+  onEvent: (event: PiStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   return streamSessionEvents(
@@ -338,8 +279,16 @@ export async function streamSessionMessage(
 export async function streamEditedSessionMessage(
   id: string,
   messageId: string,
-  input: { content: string; attachments?: MessageAttachment[]; comments?: MessageComment[]; profileId?: string; model?: string; fullAccess?: boolean },
-  onEvent: (event: SessionStreamEvent) => void,
+  input: {
+    content: string;
+    attachments?: MessageAttachment[];
+    comments?: MessageComment[];
+    profileId?: string;
+    model?: string;
+    fullAccess?: boolean;
+    whenBusy?: 'followUp' | 'steer';
+  },
+  onEvent: (event: PiStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   return streamSessionEvents(
@@ -358,7 +307,7 @@ export async function streamApprovalResponse(
   id: string,
   approvalId: string,
   approved: boolean,
-  onEvent: (event: SessionStreamEvent) => void,
+  onEvent: (event: PiStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   return streamSessionEvents(
@@ -376,7 +325,7 @@ export async function streamApprovalResponse(
 async function streamSessionEvents(
   url: string,
   init: RequestInit,
-  onEvent: (event: SessionStreamEvent) => void,
+  onEvent: (event: PiStreamEvent) => void,
 ): Promise<void> {
   const response = await fetch(url, init);
   if (!response.ok || !response.body) {
@@ -398,10 +347,12 @@ async function streamSessionEvents(
     const frames = buffer.split("\n\n");
     buffer = frames.pop() ?? "";
     for (const frame of frames) {
-      const line = frame.split(/\r?\n/).find((item) => item.startsWith("data:"));
+      const line = frame
+        .split(/\r?\n/)
+        .find((item) => item.startsWith("data:"));
       if (!line) continue;
       try {
-        onEvent(JSON.parse(line.slice(5).trim()) as SessionStreamEvent);
+        onEvent(JSON.parse(line.slice(5).trim()) as PiStreamEvent);
       } catch {
         // Ignore malformed keep-alive frames.
       }

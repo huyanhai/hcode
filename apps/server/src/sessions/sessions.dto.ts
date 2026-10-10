@@ -1,5 +1,15 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUrl,
+  ValidateNested,
+} from 'class-validator';
 
 export class MessageAttachmentDto {
   @IsString()
@@ -57,6 +67,10 @@ export class CreateSessionDto {
   @IsString()
   @IsNotEmpty()
   title?: string;
+
+  @IsOptional()
+  @IsIn(['durable', 'memory'])
+  persistence?: 'durable' | 'memory';
 }
 
 export class SendMessageDto {
@@ -76,6 +90,10 @@ export class SendMessageDto {
 
   @IsOptional()
   fullAccess?: boolean;
+
+  @IsOptional()
+  @IsIn(['followUp', 'steer'])
+  whenBusy?: 'followUp' | 'steer';
 
   @IsOptional()
   @IsArray()
@@ -106,6 +124,7 @@ export type SessionSummary = {
   workspaceId: string | null;
   title: string;
   status: string;
+  persistence: 'durable' | 'memory';
   createdAt: string;
   updatedAt: string;
 };

@@ -5,7 +5,7 @@
       <span>需要审批</span>
     </div>
     <p class="mt-2 text-muted-foreground">
-      是否允许{{ operaName }}{{ input.path }}?
+      是否允许{{ operaName }}{{ pathText }}?
     </p>
     <div
       v-if="isCommand"
@@ -54,8 +54,18 @@ const commandText = computed(() => {
   return JSON.stringify(command, null, 2);
 });
 
+const pathText = computed(() => {
+  const input = props.input;
+  return input &&
+    typeof input === "object" &&
+    "path" in input &&
+    typeof input.path === "string"
+    ? input.path
+    : "";
+});
+
 const isCommand = computed(() => {
-  return props.toolName === ToolsName.EXEC_COMMAND;
+  return props.toolName === ToolsName.BASH;
 });
 
 const operaName = computed(() => {

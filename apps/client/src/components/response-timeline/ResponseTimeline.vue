@@ -11,7 +11,7 @@
           <template #icon>
             <component :is="TOOLS_NAME_ICON_MAPS[item.toolCall.toolName]" />
           </template>
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 truncate">
             <p :class="pendingStyle(item.toolCall)">
               {{ toolSummary(item.toolCall) }}
             </p>
@@ -26,17 +26,11 @@
           </div>
         </Tool>
       </template>
-      <div v-if="isExecCommand(item.toolCall)" class="typeset typeset-docs">
+      <div v-if="hasFileDetails(item.toolCall)" class="typeset typeset-docs">
         <pre class="max-h-50 overflow-auto whitespace-pre-wrap font-mono">{{
           commandOutput(item.toolCall.output).trim()
         }}</pre>
       </div>
-      <DiffRender
-        v-else-if="fileChangeFor(item.toolCall)"
-        :file-name="fileChangeFor(item.toolCall)?.path ?? ''"
-        :original-content="fileChangeFor(item.toolCall)?.originalContent ?? ''"
-        :content="fileChangeFor(item.toolCall)?.content ?? ''"
-      />
     </Tools>
   </template>
 </template>
@@ -44,7 +38,6 @@
 <script lang="ts" setup>
 import { ChevronRight } from "@lucide/vue";
 import Markdown from "@/components/markdown/index.vue";
-import DiffRender from "@/components/diff-render/index.vue";
 import Tools from "@/components/response-progress/Tools.vue";
 import Tool from "@/components/response-progress/markers/Tool.vue";
 import {
@@ -64,44 +57,14 @@ withDefaults(
   },
 );
 
-function isExecCommand(toolCall: ResponseToolCall) {
-  return toolCall.toolName === ToolsName.EXEC_COMMAND;
-}
-
 function pendingStyle(toolCall: ResponseToolCall) {
   return toolCall.status === "in-progress" ? "shimmer" : "";
 }
 
 function hasFileDetails(toolCall: ResponseToolCall) {
-  return [ToolsName.EXEC_COMMAND, ToolsName.WRITE_FILE].includes(
+  return [ToolsName.BASH, ToolsName.WRITE, ToolsName.EDIT].includes(
     toolCall.toolName as ToolsName,
   );
-}
-
-type FileChange = {
-  path: string;
-  originalContent: string;
-  content: string;
-};
-
-function fileChangeFor(toolCall: ResponseToolCall): FileChange | undefined {
-  if (
-    toolCall.toolName !== ToolsName.WRITE_FILE &&
-    toolCall.toolName !== ToolsName.APPLY_PATCH
-  ) {
-    return undefined;
-  }
-  const output = toolCall.output;
-  if (!output || typeof output !== "object") return undefined;
-  const value = output as Partial<FileChange>;
-  if (
-    typeof value.path !== "string" ||
-    typeof value.originalContent !== "string" ||
-    typeof value.content !== "string"
-  ) {
-    return undefined;
-  }
-  return value as FileChange;
 }
 
 function inputFor(toolCall: ResponseToolCall): unknown {
@@ -123,21 +86,11 @@ function commandFor(toolCall: ResponseToolCall): string {
 function toolSummary(toolCall: ResponseToolCall): string {
   const input = inputFor(toolCall) as Record<string, unknown> | undefined;
   const path = typeof input?.path === "string" ? input.path : "";
-  if (toolCall.toolName === ToolsName.EXEC_COMMAND)
+  if (toolCall.toolName === ToolsName.BASH)
     return `已运行 ${commandFor(toolCall) || "命令"}`;
-  if (toolCall.toolName === ToolsName.LIST_FILE)
-    return `列出 ${path || "工作区"} 的文件`;
-  if (toolCall.toolName === ToolsName.READ_FILE)
-    return `读取 ${path || "文件"}`;
-  if (toolCall.toolName === ToolsName.SEARCH_FILES)
-    return `搜索 ${typeof input?.query === "string" ? `“${input.query}”` : "文件"}`;
-  if (toolCall.toolName === ToolsName.WRITE_FILE)
-    return `写入 ${path || "文件"}`;
-  if (toolCall.toolName === ToolsName.APPLY_PATCH)
-    return `应用 ${path || "文件"} 的补丁`;
-  if (toolCall.toolName === ToolsName.GIT_STATUS) return "查看 Git 状态";
-  if (toolCall.toolName === ToolsName.GIT_DIFF) return "查看 Git 变更";
-  if (toolCall.toolName === ToolsName.GIT_LOG) return "查看 Git 提交记录";
+  if (toolCall.toolName === ToolsName.READ) return `读取 ${path || "文件"}`;
+  if (toolCall.toolName === ToolsName.WRITE) return `写入 ${path || "文件"}`;
+  if (toolCall.toolName === ToolsName.EDIT) return `编辑 ${path || "文件"}`;
   return toolCall.toolName;
 }
 

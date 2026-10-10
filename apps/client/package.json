@@ -17,13 +17,12 @@
     "package:dir": "pnpm --dir ../.. run build && electron-builder --dir --config electron-builder.yml"
   },
   "engines": {
-    "node": "^22.13.0 || >=24.0.0"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",
     "@codemirror/merge": "6.12.2",
     "@codemirror/state": "6.7.6",
-    "@hcode/agent-protocol": "workspace:*",
     "@lucide/vue": "1.46.0",
     "@respeak/lucide-motion-vue": "0.7.0",
     "@tanstack/vue-query": "5.66.11",

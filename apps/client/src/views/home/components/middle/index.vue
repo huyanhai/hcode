@@ -138,7 +138,13 @@
                     (id, event) => openCommentAtMarker(message.id, id, event)
                   "
                 />
-                <Thinking v-if="latestReasoning(message.reasoning)" single-line>
+                <Thinking
+                  v-if="
+                    !isStreamFinished(message.streamStatus) &&
+                    latestReasoning(message.reasoning)
+                  "
+                  single-line
+                >
                   {{ latestReasoning(message.reasoning) }}
                 </Thinking>
               </template>
@@ -214,10 +220,10 @@ import {
   streamEditedSessionMessage,
   streamApprovalResponse,
   streamSessionMessage,
-  type SessionStreamEvent,
   type SessionDetail,
   type ModelProfileSummary,
 } from "@/lib/model-profiles-api";
+import type { PiStreamEvent, PiMessageChange } from "@/lib/pi-events";
 import { toast } from "vue-sonner";
 import {
   useSessionActivity,
@@ -493,7 +499,7 @@ async function submit() {
         model: data.model || undefined,
         fullAccess: data.fullAccess,
       },
-      (event: SessionStreamEvent) => {
+      (event: PiStreamEvent) => {
         return updateStreamMessage(sessionId, assistantMessageId, event);
       },
       abortController.signal,
@@ -944,7 +950,7 @@ async function submitEdit(message: SessionMessage) {
 function updateStreamMessage(
   sessionId: string,
   messageId: string,
-  event: SessionStreamEvent,
+  event: PiStreamEvent,
 ) {
   queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) => {
     if (!old) return old;
@@ -952,23 +958,33 @@ function updateStreamMessage(
       ...old,
       messages: old.messages.map((message) => {
         if (message.id !== messageId) return message;
-        if (event.type === "done") {
+        if (event.type === "hcode.done") {
           return {
             ...message,
             streamStatus: event.awaitingApproval
               ? "awaiting-approval"
               : "completed",
+            // Thinking is transient and must never survive a completed run.
+            reasoning: "",
             ...(event.awaitingApproval
               ? {}
               : { completedAt: String(Date.now()) }),
           };
         }
-        if (event.type === "error") {
+        if (event.type === "hcode.error") {
           return {
             ...message,
             streamStatus: "failed",
+            reasoning: "",
             completedAt: String(Date.now()),
           };
+        }
+        if (event.type === "run_end") {
+          return { ...message, reasoning: "" };
+        }
+        if (event.type === "message_end" || event.type === "turn_end") {
+          // Pi thinking is an in-flight detail, never part of the completed UI.
+          return { ...message, reasoning: "" };
         }
         const next = {
           ...message,
@@ -977,35 +993,29 @@ function updateStreamMessage(
               ? "streaming"
               : message.streamStatus,
         };
-        if (event.type === "text") {
+        if (event.type === "message_update") {
+          return applyMessageChanges(next, event.changes);
+        }
+        if (event.type === "tool_execution_start") {
+          const toolCalls = updateToolCall(
+            message.toolCalls ?? [],
+            event.toolCallId,
+            event.toolName,
+            "in-progress",
+            undefined,
+            message.content.length,
+            event.args,
+          );
+          const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
           return {
             ...next,
-            content: `${message.content}${event.text}`,
-            timeline: appendTimelineText(message.timeline, event.text),
+            toolCalls,
+            timeline: toolCall
+              ? updateTimelineTool(message.timeline, toolCall)
+              : message.timeline,
           };
         }
-        if (event.type === "reasoning") {
-          return {
-            ...next,
-            reasoning: `${message.reasoning ?? ""}${event.text}`,
-          };
-        }
-        if (event.type === "tool-call") {
-          const toolCall: ResponseToolCall = {
-            id: event.toolCallId,
-            toolName: event.toolName,
-            status: "in-progress",
-            input: event.input,
-            rawArguments: event.rawArguments,
-            contentOffset: message.content.length,
-          };
-          return {
-            ...next,
-            toolCalls: [...(message.toolCalls ?? []), toolCall],
-            timeline: appendTimelineTool(message.timeline, toolCall),
-          };
-        }
-        if (event.type === "approval") {
+        if (event.type === "hcode.approval_requested") {
           const toolCalls = updateToolApproval(
             message.toolCalls ?? [],
             event.toolCallId,
@@ -1025,48 +1035,19 @@ function updateStreamMessage(
               : message.timeline,
           };
         }
-        if (event.type === "tool-call-delta") {
-          const rawArguments =
-            event.arguments ??
-            `${message.toolCalls?.find((call) => call.id === event.toolCallId)?.rawArguments ?? ""}${event.delta}`;
-          let input: unknown;
-          try {
-            input = JSON.parse(rawArguments || "{}");
-          } catch {
-            input = undefined;
-          }
-          const toolCalls = (message.toolCalls ?? []).map((toolCall) =>
-            toolCall.id === event.toolCallId
-              ? {
-                  ...toolCall,
-                  rawArguments,
-                  ...(input === undefined ? {} : { input }),
-                }
-              : toolCall,
-          );
-          const toolCall = toolCalls.find(
+        if (event.type === "tool_execution_update") {
+          const existing = message.toolCalls?.find(
             (call) => call.id === event.toolCallId,
           );
-          return {
-            ...next,
-            toolCalls,
-            timeline: toolCall
-              ? updateTimelineTool(message.timeline, toolCall)
-              : message.timeline,
-          };
-        }
-        if (event.type === "tool-result") {
           const toolCalls = updateToolCall(
             message.toolCalls ?? [],
             event.toolCallId,
             event.toolName,
-            isToolResultFailure(event.output) ? "failed" : "completed",
-            event.output,
+            "in-progress",
+            mergeToolProgress(existing?.output, event.output),
             message.content.length,
           );
-          const toolCall = toolCalls.find(
-            (call) => call.id === event.toolCallId,
-          );
+          const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
           return {
             ...next,
             toolCalls,
@@ -1075,23 +1056,19 @@ function updateStreamMessage(
               : message.timeline,
           };
         }
-        if (event.type === "tool-progress") {
-          const id = event.itemId ?? `${event.toolName}:provider`;
-          const status =
-            event.status === "failed"
-              ? "failed"
-              : event.status === "completed"
-                ? "completed"
-                : "in-progress";
+        if (event.type === "tool_execution_end") {
+          const output = toolResultFromEntry(event.entry);
           const toolCalls = updateToolCall(
             message.toolCalls ?? [],
-            id,
+            event.toolCallId,
             event.toolName,
-            status,
-            event.data,
+            isToolResultFailure(output) ? "failed" : "completed",
+            output,
             message.content.length,
           );
-          const toolCall = toolCalls.find((call) => call.id === id);
+          const toolCall = toolCalls.find(
+            (call) => call.id === event.toolCallId,
+          );
           return {
             ...next,
             toolCalls,
@@ -1106,6 +1083,82 @@ function updateStreamMessage(
   });
 }
 
+/** Pi sends tool progress as a trim/append patch; keep the UI value textual. */
+function mergeToolProgress(previous: unknown, patch: unknown): string {
+  if (typeof patch === "string") return patch;
+  if (!patch || typeof patch !== "object") return typeof previous === "string" ? previous : "";
+  if ("set" in patch && typeof patch.set === "string") return patch.set;
+  if ("append" in patch && typeof patch.append === "string") {
+    const trimStart = "trimStart" in patch && typeof patch.trimStart === "number" ? patch.trimStart : 0;
+    const base = typeof previous === "string" ? previous.slice(trimStart) : "";
+    return `${base}${patch.append}`;
+  }
+  return typeof previous === "string" ? previous : "";
+}
+
+function applyMessageChanges(
+  message: SessionDetail["messages"][number],
+  changes: PiMessageChange[],
+): SessionDetail["messages"][number] {
+  let next = message;
+  for (const change of changes) {
+    if (change.type === "text_delta") {
+      next = {
+        ...next,
+        content: `${next.content}${change.delta}`,
+        timeline: appendTimelineText(next.timeline, change.delta),
+      };
+    } else if (change.type === "thinking_delta") {
+      next = {
+        ...next,
+        reasoning: `${next.reasoning ?? ""}${change.delta}`,
+      };
+    } else if (change.type === "toolcall_start") {
+      const block = change.block;
+      const toolCall: ResponseToolCall = {
+        id: String(block.id ?? crypto.randomUUID()),
+        toolName: String(block.name ?? "tool"),
+        status: "in-progress",
+        input: block.arguments,
+        contentOffset: next.content.length,
+        contentIndex: change.contentIndex,
+      };
+      next = {
+        ...next,
+        toolCalls: [...(next.toolCalls ?? []), toolCall],
+        timeline: appendTimelineTool(next.timeline, toolCall),
+      };
+    } else if (change.type === "toolcall_delta") {
+      const existing = next.toolCalls?.find(
+        (call) => call.contentIndex === change.contentIndex,
+      );
+      const id = existing?.id;
+      if (!id) continue;
+      const rawArguments = `${existing?.rawArguments ?? ""}${change.delta}`;
+      let input: unknown;
+      try {
+        input = JSON.parse(rawArguments);
+      } catch {
+        input = undefined;
+      }
+      const toolCalls = (next.toolCalls ?? []).map((call) =>
+        call.id === id
+          ? { ...call, rawArguments, ...(input === undefined ? {} : { input }) }
+          : call,
+      );
+      const toolCall = toolCalls.find((call) => call.id === id);
+      next = {
+        ...next,
+        toolCalls,
+        timeline: toolCall
+          ? updateTimelineTool(next.timeline, toolCall)
+          : next.timeline,
+      };
+    }
+  }
+  return next;
+}
+
 function updateToolCall(
   toolCalls: ResponseToolCall[],
   id: string,
@@ -1113,14 +1166,43 @@ function updateToolCall(
   status: ResponseToolCall["status"],
   output?: unknown,
   contentOffset?: number,
+  input?: unknown,
 ): ResponseToolCall[] {
   const existing = toolCalls.find((toolCall) => toolCall.id === id);
   if (!existing) {
-    return [...toolCalls, { id, toolName, status, output, contentOffset }];
+    return [...toolCalls, { id, toolName, status, output, contentOffset, input }];
   }
   return toolCalls.map((toolCall) =>
-    toolCall.id === id ? { ...toolCall, status, output } : toolCall,
+    toolCall.id === id
+      ? { ...toolCall, status, output, ...(input === undefined ? {} : { input }) }
+      : toolCall,
   );
+}
+
+/** Extract Pi's readable tool result without exposing the full EntryRecord. */
+function toolResultFromEntry(entry: unknown): unknown {
+  if (!entry || typeof entry !== "object") return entry;
+  const model = (entry as { model?: unknown }).model;
+  if (!Array.isArray(model)) return entry;
+  const message = model[0];
+  if (!message || typeof message !== "object") return entry;
+  const result = message as {
+    content?: unknown;
+    isError?: unknown;
+  };
+  const content = result.content;
+  const text = Array.isArray(content)
+    ? content
+        .map((part) =>
+          part && typeof part === "object" && "type" in part && part.type === "text"
+            ? String((part as { text?: unknown }).text ?? "")
+            : "",
+        )
+        .join("")
+    : typeof content === "string"
+      ? content
+      : "";
+  return result.isError === true ? { stderr: text, isError: true } : text;
 }
 
 function mergeTransientAssistantState(
@@ -1139,9 +1221,6 @@ function mergeTransientAssistantState(
       message.id === messageId
         ? {
             ...message,
-            ...(localMessage.reasoning
-              ? { reasoning: localMessage.reasoning }
-              : {}),
             ...(localMessage.timeline?.length
               ? { timeline: localMessage.timeline }
               : {}),
@@ -1305,8 +1384,8 @@ function isToolResultFailure(output: unknown): boolean {
   return (
     typeof output === "object" &&
     output !== null &&
-    "error" in output &&
-    typeof output.error === "string"
+    (("isError" in output && output.isError === true) ||
+      ("error" in output && typeof output.error === "string"))
   );
 }
 
@@ -1321,7 +1400,12 @@ function updateMessageStatus(
           ...old,
           messages: old.messages.map((message) =>
             message.id === messageId
-              ? { ...message, streamStatus, completedAt: String(Date.now()) }
+              ? {
+                  ...message,
+                  streamStatus,
+                  reasoning: "",
+                  completedAt: String(Date.now()),
+                }
               : message,
           ),
         }

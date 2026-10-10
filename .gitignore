@@ -22,5 +22,5 @@ output/playwright/
 *.log
 .DS_Store
 Thumbs.db
-packages/agent-storage/*.db
-packages/agent-storage/*.db-*
+# Pi's local durable session store (including SQLite WAL files)
+apps/server/database/pi-sessions.sqlite*

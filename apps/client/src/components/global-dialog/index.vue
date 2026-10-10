@@ -1,6 +1,7 @@
 <template>
   <Dialog v-model:open="show">
     <DialogContent
+      class="rounded-2xl"
       @pointer-down-outside="(event) => event.preventDefault()"
       @escape-key-down="(event) => event.preventDefault()"
     >
@@ -13,9 +14,7 @@
         </DialogHeader>
         <DialogFooter>
           <DialogClose>
-            <Button type="button" variant="outline">
-              取消
-            </Button>
+            <Button type="button" variant="outline"> 取消 </Button>
           </DialogClose>
           <Button type="submit">
             {{ submitButtonText || "保存" }}

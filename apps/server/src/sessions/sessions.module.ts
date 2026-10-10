@@ -7,5 +7,6 @@ import { FileStorageModule } from '../file-storage/file-storage.module';
   imports: [FileStorageModule],
   controllers: [SessionsController],
   providers: [SessionsService],
+  exports: [SessionsService],
 })
 export class SessionsModule {}

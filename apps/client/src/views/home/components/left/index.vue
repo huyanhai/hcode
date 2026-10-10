@@ -5,6 +5,14 @@
         <SquarePen animateOnHover triggerTarget="parent" />
         新会话
       </Button>
+      <Button
+        class="menu-button"
+        variant="ghost"
+        @click="createRecentSession('memory')"
+      >
+        <SquarePen animateOnHover triggerTarget="parent" />
+        临时会话
+      </Button>
       <div class="min-h-0 flex-1 flex flex-col gap-1">
         <ActionsButton @click="showProject = !showProject">
           <div class="text-sm text-muted-foreground flex gap-1 items-center">
@@ -52,7 +60,14 @@
               "
               @click="selectSession(item.id, session.id)"
             >
-              <div class="pl-5">{{ session.title }}</div>
+              <div class="pl-5">
+                {{ session.title
+                }}<span
+                  v-if="session.persistence === 'memory'"
+                  class="ml-1 text-xs opacity-50"
+                  >临时</span
+                >
+              </div>
               <template #action>
                 <button
                   class="button-hover shrink-0 hidden group-hover/session:block"
@@ -97,7 +112,14 @@
             :class="session.id === selectedSessionId ? 'bg-muted' : ''"
             @click="selectSession(null, session.id)"
           >
-            <div class="pl-5">{{ session.title }}</div>
+            <div class="pl-5">
+              {{ session.title
+              }}<span
+                v-if="session.persistence === 'memory'"
+                class="ml-1 text-xs opacity-50"
+                >临时</span
+              >
+            </div>
             <template #action>
               <button
                 class="button-hover shrink-0"
@@ -340,10 +362,12 @@ function startNewSession() {
   void createRecentSession();
 }
 
-async function createRecentSession() {
+async function createRecentSession(
+  persistence: "durable" | "memory" = "durable",
+) {
   if (createSessionMutation.isPending.value) return;
   try {
-    await createSessionMutation.mutateAsync({});
+    await createSessionMutation.mutateAsync({ persistence });
   } catch {
     // onError already shows the request error.
   }
@@ -377,9 +401,7 @@ function archiveWorkspace(workspace: WorkspaceSummary) {
 function deleteWorkspace(workspace: WorkspaceSummary) {
   if (deleteWorkspaceMutation.isPending.value) return;
   if (
-    !window.confirm(
-      `确定删除项目“${workspace.name}”吗？项目内的会话也会被删除。`,
-    )
+    !window.confirm(`确定删除项目“${workspace.name}”吗？项目内的会话会被归档。`)
   )
     return;
   deleteWorkspaceMutation.mutate(workspace.id);

@@ -1,7 +1,10 @@
 /// <reference types="vite/client" />
 
 import type { DesktopInfo } from '../types/desktop'
-import type { AgentEvent, Command, RuntimeResponse } from '@hcode/agent-protocol'
+
+type AgentEvent = Record<string, unknown>
+type Command = Record<string, unknown>
+type RuntimeResponse = Record<string, unknown>
 
 declare global {
   const __APP_VERSION__: string
