@@ -359,15 +359,19 @@ function startNewSessionBySpace(item: WorkspaceSummary) {
 }
 
 function startNewSession() {
-  void createRecentSession();
+  void createRecentSession("durable", selectedWorkspaceId.value || undefined);
 }
 
 async function createRecentSession(
   persistence: "durable" | "memory" = "durable",
+  workspaceId?: string,
 ) {
   if (createSessionMutation.isPending.value) return;
   try {
-    await createSessionMutation.mutateAsync({ persistence });
+    await createSessionMutation.mutateAsync({
+      persistence,
+      ...(workspaceId ? { workspaceId } : {}),
+    });
   } catch {
     // onError already shows the request error.
   }

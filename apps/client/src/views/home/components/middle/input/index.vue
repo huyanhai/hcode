@@ -25,6 +25,7 @@
         <InputArea
           ref="inputAreaRef"
           v-model="modelData.content"
+          :disabled="disabled"
           @submit="handleSubmit"
           @paste-image="handlePastedImage"
         />
@@ -327,7 +328,12 @@ function selectTool(tool: "image" | "research" | "web-search") {
 }
 
 function handleSubmit() {
-  if (!canSubmit.value || hasPendingUpload.value || hasUploadError.value)
+  if (
+    props.disabled ||
+    !canSubmit.value ||
+    hasPendingUpload.value ||
+    hasUploadError.value
+  )
     return;
   emit("submit");
 

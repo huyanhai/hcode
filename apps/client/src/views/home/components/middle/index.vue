@@ -117,16 +117,6 @@
                   :completed-at="message.completedAt"
                 >
                   <ResponseTimeline :items="processTimelineItems(message)" />
-                  <ApprovalRequest
-                    v-for="approval in pendingApprovals(message)"
-                    :key="approval.approvalId"
-                    :tool-name="approval.toolName"
-                    :input="approval.input"
-                    :busy="respondingApprovalId === approval.approvalId"
-                    @respond="
-                      respondToApproval(message.id, approval.approvalId, $event)
-                    "
-                  />
                 </ResponseProgress>
                 <ResponseTimeline v-else :items="timelineItems(message)" />
                 <Markdown
@@ -190,7 +180,22 @@
           <MoveDown class="opacity-50" v-else />
         </MessageScrollerButton>
       </MessageScroller>
+      <ApprovalRequest
+        v-if="pendingApprovalRequest"
+        class="mt-0 mb-4 w-full"
+        :tool-name="pendingApprovalRequest.toolName"
+        :input="pendingApprovalRequest.input"
+        :busy="respondingApprovalId === pendingApprovalRequest.approvalId"
+        @respond="
+          respondToApproval(
+            pendingApprovalRequest.messageId,
+            pendingApprovalRequest.approvalId,
+            $event,
+          )
+        "
+      />
       <Input
+        v-else
         class="mb-4"
         v-model="data"
         :models="modelOptions"
@@ -332,6 +337,14 @@ onActivated(() => {
 //#region Computed
 // 消息列表
 const messages = computed(() => sessionQuery.data.value?.messages ?? []);
+const pendingApprovalRequest = computed(() => {
+  for (let index = messages.value.length - 1; index >= 0; index -= 1) {
+    const message = messages.value[index];
+    const approval = pendingApprovals(message)[0];
+    if (approval) return { messageId: message.id, ...approval };
+  }
+  return undefined;
+});
 const lastUserMessageId = computed(() => {
   for (let index = messages.value.length - 1; index >= 0; index -= 1) {
     if (messages.value[index]?.role === "user") return messages.value[index].id;
