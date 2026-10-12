@@ -83,6 +83,10 @@ declare module 'vue' {
     FormMessage: typeof import('./src/components/ui/form/FormMessage.vue')['default']
     GlobalDialog: typeof import('./src/components/global-dialog/index.vue')['default']
     HoverCard: typeof import('./src/components/hover-card/index.vue')['default']
+    HoverCardContent: typeof import('reka-ui')['HoverCardContent']
+    HoverCardPortal: typeof import('reka-ui')['HoverCardPortal']
+    HoverCardRoot: typeof import('reka-ui')['HoverCardRoot']
+    HoverCardTrigger: typeof import('reka-ui')['HoverCardTrigger']
     Indev: typeof import('./src/components/closeable-button/indev.vue')['default']
     Input: typeof import('./src/components/ui/input/Input.vue')['default']
     InputGroup: typeof import('./src/components/ui/input-group/InputGroup.vue')['default']
@@ -119,6 +123,7 @@ declare module 'vue' {
     MessageScrollerItem: typeof import('./src/components/ui/message-scroller/MessageScrollerItem.vue')['default']
     MessageScrollerProvider: typeof import('./src/components/ui/message-scroller/MessageScrollerProvider.vue')['default']
     MessageScrollerViewport: typeof import('./src/components/ui/message-scroller/MessageScrollerViewport.vue')['default']
+    Primitive: typeof import('reka-ui')['Primitive']
     ResizableHandle: typeof import('./src/components/ui/resizable/ResizableHandle.vue')['default']
     ResizablePanelGroup: typeof import('./src/components/ui/resizable/ResizablePanelGroup.vue')['default']
     ResponseProgress: typeof import('./src/components/response-progress/ResponseProgress.vue')['default']
@@ -151,5 +156,6 @@ declare module 'vue' {
     Thinking: typeof import('./src/components/response-progress/markers/Thinking.vue')['default']
     Tool: typeof import('./src/components/response-progress/markers/Tool.vue')['default']
     Tools: typeof import('./src/components/response-progress/Tools.vue')['default']
+    Webview: typeof import('./src/components/webview/index.vue')['default']
   }
 }

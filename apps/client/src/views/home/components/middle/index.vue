@@ -227,7 +227,12 @@ import {
   streamSessionMessage,
   type SessionDetail,
   type ModelProfileSummary,
+  type MessageAttachment,
 } from "@/lib/model-profiles-api";
+import { uploadAttachment } from "@/lib/model-profiles-api";
+import { formatWebAnnotation } from "@hcode/web-annotation";
+import type { ConfirmedWebAnnotation } from "@hcode/web-annotation";
+import { useWebAnnotationStore } from "@/stores/web-annotation";
 import type { PiStreamEvent, PiMessageChange } from "@/lib/pi-events";
 import { toast } from "vue-sonner";
 import {
@@ -266,6 +271,8 @@ const data = reactive<SubmitPayload>({
 });
 
 const sending = ref(false);
+const webAnnotations = useWebAnnotationStore();
+let processingWebAnnotation = false;
 let abortController: AbortController | undefined;
 const respondingApprovalId = ref<string>();
 const editingMessageId = ref<string>();
@@ -448,10 +455,10 @@ function scrollToHistoryTurn(item: ChatHistoryRailItem) {
   });
 }
 
-async function submit() {
-  const sessionId = selectedSessionId.value;
-  const content = data.content.trim();
-  const attachments = data.attachments.flatMap((attachment) =>
+async function submit(override?: { sessionId: string; content: string; attachments: MessageAttachment[] }) {
+  const sessionId = override?.sessionId ?? selectedSessionId.value;
+  const content = override?.content.trim() ?? data.content.trim();
+  const attachments = override?.attachments ?? data.attachments.flatMap((attachment) =>
     attachment.uploadState === "uploaded" && attachment.uploaded
       ? [attachment.uploaded]
       : [],
@@ -459,7 +466,7 @@ async function submit() {
   if (
     !sessionId ||
     (!content && !attachments.length) ||
-    attachments.length !== data.attachments.length ||
+    (!override && attachments.length !== data.attachments.length) ||
     sending.value
   )
     return;
@@ -468,7 +475,9 @@ async function submit() {
   activeSessionId.value = sessionId;
   let assistantMessageId = "";
   try {
-    const current = sessionQuery.data.value;
+    const current = override
+      ? queryClient.getQueryData<SessionDetail>(["session", sessionId])
+      : sessionQuery.data.value;
     const userMessageId = crypto.randomUUID();
     assistantMessageId = crypto.randomUUID();
     const userMessage = {
@@ -478,7 +487,7 @@ async function submit() {
       role: "user" as const,
       content,
       attachments,
-      comments: data.comments.map((comment) => ({ ...comment })),
+      comments: override ? [] : data.comments.map((comment) => ({ ...comment })),
       sequence: (current?.messages.at(-1)?.sequence ?? 0) + 1,
       createdAt: String(Date.now()),
     };
@@ -507,7 +516,7 @@ async function submit() {
       {
         content,
         attachments,
-        comments: data.comments.map((comment) => ({ ...comment })),
+        comments: override ? [] : data.comments.map((comment) => ({ ...comment })),
         profileId: defaultProfile.value?.id,
         model: data.model || undefined,
         fullAccess: data.fullAccess,
@@ -539,6 +548,35 @@ async function submit() {
     sending.value = false;
     if (activeSessionId.value === sessionId) activeSessionId.value = "";
   }
+}
+
+watch(
+  [() => webAnnotations.pending.length, sending, selectedSessionId],
+  () => { void processWebAnnotations(); },
+  { immediate: true },
+);
+
+async function processWebAnnotations(): Promise<void> {
+  if (processingWebAnnotation || sending.value) return;
+  const item = webAnnotations.shift();
+  if (!item) return;
+  processingWebAnnotation = true;
+  try {
+    const screenshot = screenshotFile(item.result);
+    const attachment = await uploadAttachment(screenshot);
+    await submit({ sessionId: item.sessionId, content: formatWebAnnotation(item.result.annotation), attachments: [attachment] });
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "发送网页批注失败");
+  } finally {
+    processingWebAnnotation = false;
+    if (webAnnotations.pending.length) void processWebAnnotations();
+  }
+}
+
+function screenshotFile(item: ConfirmedWebAnnotation): File {
+  const binary = atob(item.screenshotPngBase64);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new File([bytes], `web-annotation-${item.annotation.id}.png`, { type: "image/png" });
 }
 
 type SessionMessage = SessionDetail["messages"][number];

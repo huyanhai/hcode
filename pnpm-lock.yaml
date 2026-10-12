@@ -57,6 +57,9 @@ importers:
       '@codemirror/state':
         specifier: 6.7.6
         version: 6.7.6
+      '@hcode/web-annotation':
+        specifier: workspace:*
+        version: link:../../packages/web-annotation
       '@lucide/vue':
         specifier: 1.46.0
         version: 1.46.0(vue@3.5.42(typescript@6.0.3))
@@ -297,6 +300,12 @@ importers:
       typescript:
         specifier: ^5.1.3
         version: 5.9.3
+
+  packages/web-annotation:
+    devDependencies:
+      typescript:
+        specifier: 7.0.2
+        version: 7.0.2
 
 packages:
 

@@ -2,26 +2,18 @@
   <Top
     class="w-full z-30 pr-2 absolute my-2"
     v-model:left="showLeft"
-    v-model:right="showRight"
+    v-model:right="browserOpen"
     v-model:bottom="showBottom"
   />
   <Layout
     v-model:left="showLeft"
-    v-model:right="showRight"
+    v-model:right="browserOpen"
     v-model:bottom="showBottom"
   >
-    <template #left>
-      <Left />
-    </template>
-    <template #middle>
-      <Middle />
-    </template>
-    <template #right>
-      <Right />
-    </template>
-    <template #bottom>
-      <Bottom />
-    </template>
+    <template #left><Left /></template>
+    <template #middle><Middle /></template>
+    <template #right><Right /></template>
+    <template #bottom><Bottom /></template>
   </Layout>
 </template>
 <script lang="ts" setup>
@@ -34,7 +26,7 @@ import Right from "./components/right/index.vue";
 import Bottom from "./components/bottom/index.vue";
 
 const showLeft = ref(true);
-const showRight = ref(false);
+const browserOpen = ref(false);
 const showBottom = ref(false);
 //#region Props
 //#endregion

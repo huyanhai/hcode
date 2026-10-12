@@ -29,6 +29,8 @@
         variant="ghost"
         class="button button-hover no-drag"
         @click="right = !right"
+        title="网页批注"
+        aria-label="网页批注"
       >
         <PanelRight v-if="right" />
         <PanelRightOpen v-else />
