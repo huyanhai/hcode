@@ -26,15 +26,16 @@ export function selectPageElement() {
     position: "fixed",
     display: "none",
     placeItems: "center",
-    width: "36px",
-    height: "36px",
+    width: "20px",
+    height: "20px",
     transform: "translate(-50%, -50%)",
-    border: "2px solid #fff",
     borderRadius: "50%",
     background: "#3298ff",
-    boxShadow: "0 1px 5px #0003",
+    boxShadow: "0 1px 5px #0002",
     pointerEvents: "none",
     zIndex: "2147483647",
+    "border-bottom-left-radius": "4px",
+    border: "1px solid #fff",
   });
   document.documentElement.append(hoverMarker);
 
@@ -226,7 +227,6 @@ export function selectPageElement() {
     // event.stopImmediatePropagation();
     if (annotation) return;
     annotation = true;
-    index++;
     highlight.style.display = "none";
     hoverMarker.style.display = "none";
     restoreNativeCursor();
@@ -235,11 +235,18 @@ export function selectPageElement() {
       x: event.clientX - anchor.rect.x,
       y: event.clientY - anchor.rect.y,
     };
-    const composer = composePageAnnotation(anchor, index, markerOffset);
+    // 序号只在点击确认后才真正递增，编辑期间仅预览 index + 1
+    const composer = composePageAnnotation(anchor, index + 1, markerOffset);
     annotationInstance = composer;
-    composer.addEventListener("annotation-confirm", finishAnnotation, {
-      once: true,
-    });
+    composer.addEventListener(
+      "annotation-confirm",
+      (event) => {
+        console.log(event)
+        index++;
+        finishAnnotation();
+      },
+      { once: true },
+    );
     composer.addEventListener("annotation-cancel", finishAnnotation, {
       once: true,
     });
