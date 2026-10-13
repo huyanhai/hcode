@@ -65,7 +65,17 @@ async function createWindow(): Promise<void> {
     },
   });
 
-  // window.webContents.openDevTools({ mode: "detach" });
+  window.webContents.openDevTools({ mode: "detach" });
+
+  window.webContents.on("will-attach-webview", (_event, webPreferences) => {
+    webPreferences.preload = join(
+      __dirname,
+      "../webview-preload/webview-preload.cjs",
+    );
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+  });
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());

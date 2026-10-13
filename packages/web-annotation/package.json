@@ -8,13 +8,15 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./page-agent": {
-      "types": "./dist/page-agent.d.ts",
-      "default": "./dist/page-agent.js"
+    "./inspect": {
+      "types": "./dist/inspect.d.ts",
+      "default": "./dist/iife/index.js"
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build && pnpm run build:inspect",
+    "build:inspect": "vite build --config vite.inspect.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

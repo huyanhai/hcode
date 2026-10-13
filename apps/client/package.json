@@ -7,9 +7,10 @@
   "type": "module",
   "main": "dist/main/main.cjs",
   "scripts": {
+    "predev": "pnpm --filter @hcode/web-annotation build:agent",
     "dev": "vite",
     "dev:web": "vite --mode web",
-    "build": "pnpm typecheck && vite build",
+    "build": "pnpm --filter @hcode/web-annotation build:agent && pnpm typecheck && vite build",
     "preview": "vite preview --mode web",
     "lint": "eslint .",
     "typecheck": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",

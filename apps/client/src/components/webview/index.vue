@@ -54,14 +54,6 @@
         />
       </div>
       <Button
-        size="icon-sm"
-        variant="outline"
-        class="rounded-full"
-        @click="copyAddress"
-      >
-        <Copy />
-      </Button>
-      <Button
         v-if="isDev"
         size="icon-sm"
         variant="ghost"
@@ -77,6 +69,7 @@
         :src="src"
         class="w-full h-full"
         @dom-ready="syncNavState"
+        @did-finish-load="onDidFinishLoad"
         @did-navigate="onNavigated"
         @did-navigate-in-page="onNavigated"
         @did-start-loading="onStartLoading"
@@ -109,22 +102,18 @@ import {
 } from "@lucide/vue";
 import { Input } from "../ui/input";
 import { toast } from "vue-sonner";
-import type {
-  ConfirmedWebAnnotation,
-  ElementAnchor,
-  StyleChanges,
-} from "@hcode/web-annotation";
-import { editableStyles } from "@hcode/web-annotation";
+import type { ElementAnchor } from "@hcode/web-annotation";
 import {
   applyStylePreview,
-  composePageAnnotation,
-  selectPageElement,
-} from "@hcode/web-annotation/page-agent";
+  registerIpc,
+  unregisterIpc,
+} from "@hcode/web-annotation";
+import pageAgentScript from "@hcode/web-annotation/inspect?raw";
 import { useSessionSelection } from "@/stores/session-selection";
 import { useWebAnnotationStore } from "@/stores/web-annotation";
 import { normalizeUrl } from "@/utils/url";
 
-const DEFAULT_URL = "https://www.github.com/";
+const DEFAULT_URL = "https://www.baidu.com/";
 
 /** Electron 的 <webview> 在 TS 里没有内置类型，这里声明用到的部分 */
 interface WebviewElement extends HTMLElement {
@@ -158,16 +147,20 @@ const annotating = ref(false);
 const selectedSessionId = useSessionSelection();
 const annotations = useWebAnnotationStore();
 const isDev = import.meta.env.DEV;
-let annotationCancelRequested = false;
+let annotationSessionId: string | null = null;
 //#region Props
 //#endregion
 //#region Emits
 //#endregion
 //#region Hooks
 onMounted(() => {
-  void nextTick(syncNavState);
+  void nextTick(() => {
+    syncNavState();
+    registerIpc(webviewRef.value!, onWebviewIpcMessage);
+  });
 });
 onBeforeUnmount(() => {
+  unregisterIpc(webviewRef.value!, onWebviewIpcMessage);
   void cancelPageAnnotation();
 });
 //#endregion
@@ -247,114 +240,47 @@ function onNavigated() {
 }
 
 async function cancelPageAnnotation() {
-  if (annotating.value) annotationCancelRequested = true;
+  annotating.value = false;
+  annotationSessionId = null;
   await webviewRef.value
     ?.executeJavaScript(
-      "window.__hcodeAnnotationCancel?.();window.__hcodeAnnotationComposerCancel?.()",
+      "window.__hcodeAnnotationController?.destroy?.();window.__hcodeAnnotationComposerCancel?.()",
       true,
     )
     .catch(() => undefined);
 }
 
-function isElementAnchor(value: unknown): value is ElementAnchor {
-  if (!value || typeof value !== "object") return false;
-  const anchor = value as Partial<ElementAnchor>;
-  return (
-    anchor.kind === "element" &&
-    typeof anchor.pageUrl === "string" &&
-    typeof anchor.pageTitle === "string" &&
-    typeof anchor.selector === "string" &&
-    typeof anchor.tagName === "string" &&
-    typeof anchor.label === "string" &&
-    !!anchor.rect &&
-    !!anchor.styles
-  );
+async function onDidFinishLoad() {
+  syncNavState();
+  await runScriptInWebview(pageAgentScript);
 }
 
-interface AnnotationDraft {
-  comment: string;
-  changes: StyleChanges;
-}
-
-function isAnnotationDraft(value: unknown): value is AnnotationDraft | null {
-  if (value === null) return true;
-  if (!value || typeof value !== "object") return false;
-  const draft = value as { comment?: unknown; changes?: unknown };
-  return (
-    typeof draft.comment === "string" &&
-    !!draft.changes &&
-    typeof draft.changes === "object"
-  );
-}
-
-function sanitizeChanges(value: StyleChanges): StyleChanges {
-  const changes: StyleChanges = {};
-  for (const style of editableStyles) {
-    const candidate = value[style];
-    if (typeof candidate === "string" && candidate.trim() && candidate.length <= 256) {
-      changes[style] = candidate.trim();
-    }
-  }
-  return changes;
+function runScriptInWebview(script: Function | string) {
+  const view = webviewRef.value;
+  if (!view) return Promise.reject(new Error("webview 未就绪"));
+  const code = typeof script === "string" ? script : `(${script.toString()})()`;
+  return view.executeJavaScript(code, true);
 }
 
 async function toggleAnnotation() {
-  if (annotating.value) {
-    await cancelPageAnnotation();
-    return;
-  }
+  runScriptInWebview("inspect()");
+}
 
-  const view = webviewRef.value;
-  if (!view) return toast.error("网页尚未就绪");
-  if (!selectedSessionId.value) return toast.error("请先选择会话");
-
-  const sessionId = selectedSessionId.value;
-  annotationCancelRequested = false;
-  annotating.value = true;
-  let anchor: ElementAnchor | undefined;
-  try {
-    await view.executeJavaScript('console.log(123)', true);
-    const selected: unknown = await view.executeJavaScript(
-      `(${selectPageElement.toString()})()`,
-      true,
-    );
-    if (!isElementAnchor(selected)) return;
-    anchor = selected;
-
-    const expression = `(${composePageAnnotation.toString()})(${JSON.stringify(anchor)},(${applyStylePreview.toString()}))`;
-    const draftValue = await view.executeJavaScript(expression, true);
-    if (!isAnnotationDraft(draftValue)) throw new Error("网页批注数据无效");
-    if (!draftValue) return;
-    if (anchor.pageUrl !== view.getURL()) {
-      throw new Error("网页已变化，请重新选择元素");
-    }
-
-    const changes = sanitizeChanges(draftValue.changes);
-    const image = await view.capturePage();
-    const screenshotPngBase64 = bytesToBase64(image.toPNG());
-    if (!screenshotPngBase64) throw new Error("网页截图失败");
-
-    const result: ConfirmedWebAnnotation = {
-      annotation: {
-        id: crypto.randomUUID(),
-        anchor,
-        comment: draftValue.comment.trim().slice(0, 10_000),
-        changes,
-        createdAt: new Date().toISOString(),
-      },
-      screenshotPngBase64,
-    };
-    annotations.enqueue(sessionId, result);
-    toast.success("批注和网页截图已确认，正在发送");
-  } catch (cause) {
-    if (!annotationCancelRequested) {
-      toast.error(cause instanceof Error ? cause.message : "网页批注失败");
-    }
-  } finally {
-    if (anchor) await restorePageStyles(view, anchor);
-    annotationCancelRequested = false;
-    annotating.value = false;
-  }
+// 今天消息
+function onWebviewIpcMessage(event: Event) {
+  console.log(event);
+  // const message = event as Event & { channel?: string; args?: unknown[] };
+  // if (message.channel === "hcode:web-annotation-exited") {
+  //   annotating.value = false;
+  //   return;
+  // }
+  // if (message.channel !== "hcode:web-annotation-confirmed") return;
+  // const selection = message.args?.[0];
+  // if (!isPageAnnotationSelection(selection)) {
+  //   toast.error("网页批注数据无效");
+  //   return;
+  // }
+  // void handleAnnotationConfirmed(selection);
 }
 
 async function restorePageStyles(view: WebviewElement, anchor: ElementAnchor) {
@@ -367,20 +293,11 @@ function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   const chunkSize = 0x8000;
   for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + chunkSize),
+    );
   }
   return btoa(binary);
-}
-
-async function copyAddress() {
-  try {
-    const currentUrl = webviewRef.value?.getURL() || src.value;
-    if (!currentUrl) return;
-    await navigator.clipboard.writeText(currentUrl);
-    toast.success("已复制网页地址");
-  } catch {
-    toast.error("复制网页地址失败");
-  }
 }
 
 /** 主框架加载失败时给出可见的错误页，避免只有一块空白 */

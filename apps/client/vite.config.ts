@@ -43,26 +43,51 @@ export default defineConfig(({ command, mode }) => ({
             },
           },
         },
-        preload: {
-          input: "electron/preload.ts",
-          async onstart({ startup }) {
-            await startup(["."]);
-          },
-          vite: {
-            build: {
-              outDir: "dist/preload",
-              emptyOutDir: true,
-              target: "node22",
-              sourcemap: command === "serve",
-              rolldownOptions: {
-                output: { entryFileNames: "[name].cjs" },
+        preload: [
+          {
+            input: "electron/preload.ts",
+            async onstart({ startup }) {
+              await startup(["."]);
+            },
+            vite: {
+              build: {
+                outDir: "dist/preload",
+                emptyOutDir: true,
+                target: "node22",
+                sourcemap: command === "serve",
+                rolldownOptions: {
+                  output: { entryFileNames: "[name].cjs" },
+                },
               },
             },
           },
-        },
+          {
+            input: "electron/webview-preload.ts",
+            async onstart({ startup }) {
+              await startup(["."]);
+            },
+            vite: {
+              build: {
+                outDir: "dist/webview-preload",
+                emptyOutDir: true,
+                target: "node22",
+                sourcemap: command === "serve",
+                rolldownOptions: {
+                  output: { entryFileNames: "[name].cjs" },
+                },
+              },
+            },
+          },
+        ],
       }),
   ],
   resolve: {
+    conditions: [
+      "module",
+      "browser",
+      "development|production",
+      ...(command === "serve" ? ["development"] : []),
+    ],
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
   define: {

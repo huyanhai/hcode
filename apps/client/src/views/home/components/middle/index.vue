@@ -230,7 +230,6 @@ import {
   type MessageAttachment,
 } from "@/lib/model-profiles-api";
 import { uploadAttachment } from "@/lib/model-profiles-api";
-import { formatWebAnnotation } from "@hcode/web-annotation";
 import type { ConfirmedWebAnnotation } from "@hcode/web-annotation";
 import { useWebAnnotationStore } from "@/stores/web-annotation";
 import type { PiStreamEvent, PiMessageChange } from "@/lib/pi-events";
@@ -564,7 +563,7 @@ async function processWebAnnotations(): Promise<void> {
   try {
     const screenshot = screenshotFile(item.result);
     const attachment = await uploadAttachment(screenshot);
-    await submit({ sessionId: item.sessionId, content: formatWebAnnotation(item.result.annotation), attachments: [attachment] });
+    await submit({ sessionId: item.sessionId, content: '', attachments: [attachment] });
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "发送网页批注失败");
   } finally {
