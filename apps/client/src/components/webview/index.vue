@@ -96,22 +96,20 @@ import {
   ArrowLeft,
   ArrowRight,
   Bug,
-  Copy,
   MousePointer2,
   RefreshCcw,
 } from "@lucide/vue";
 import { Input } from "../ui/input";
 import { toast } from "vue-sonner";
-import type { ElementAnchor } from "@hcode/web-annotation";
-import {
-  applyStylePreview,
-  registerIpc,
-  unregisterIpc,
+import type {
+  ElementAnchor,
+  PageAnnotationSelection,
 } from "@hcode/web-annotation";
 import pageAgentScript from "@hcode/web-annotation/inspect?raw";
 import { useSessionSelection } from "@/stores/session-selection";
 import { useWebAnnotationStore } from "@/stores/web-annotation";
 import { normalizeUrl } from "@/utils/url";
+import { registerIpc, unregisterIpc } from "@/utils/webview";
 
 const DEFAULT_URL = "https://www.baidu.com/";
 
@@ -242,11 +240,9 @@ function onNavigated() {
 async function cancelPageAnnotation() {
   annotating.value = false;
   annotationSessionId = null;
+  // destroy() 内已包含关闭批注卡片（还原实时预览）与清理遮罩
   await webviewRef.value
-    ?.executeJavaScript(
-      "window.__hcodeAnnotationController?.destroy?.();window.__hcodeAnnotationComposerCancel?.()",
-      true,
-    )
+    ?.executeJavaScript("window.destroy?.()", true)
     .catch(() => undefined);
 }
 
@@ -263,29 +259,80 @@ function runScriptInWebview(script: Function | string) {
 }
 
 async function toggleAnnotation() {
-  runScriptInWebview("inspect()");
+  if (annotating.value) {
+    await cancelPageAnnotation();
+    return;
+  }
+  annotating.value = true;
+  // 记住进入审查时所在的会话，批注确认后提交到该会话
+  annotationSessionId = selectedSessionId.value || null;
+  // 页面脚本未注入时回退按钮状态
+  await runScriptInWebview("window.inspect?.()").catch(() => {
+    annotating.value = false;
+  });
 }
 
 // 今天消息
 function onWebviewIpcMessage(event: Event) {
-  console.log(event);
-  // const message = event as Event & { channel?: string; args?: unknown[] };
-  // if (message.channel === "hcode:web-annotation-exited") {
-  //   annotating.value = false;
-  //   return;
-  // }
-  // if (message.channel !== "hcode:web-annotation-confirmed") return;
-  // const selection = message.args?.[0];
-  // if (!isPageAnnotationSelection(selection)) {
-  //   toast.error("网页批注数据无效");
-  //   return;
-  // }
-  // void handleAnnotationConfirmed(selection);
+  console.log(event)
+  const message = event as Event & { channel?: string; args?: unknown[] };
+  // 页面侧 preload 桥：ipcRenderer.sendToHost("inspect-confirmed", selection)
+  if (message.channel !== "inspect-confirmed") return;
+  const selection = message.args?.[0];
+  if (!isPageAnnotationSelection(selection)) {
+    toast.error("网页批注数据无效");
+    return;
+  }
+  void handleAnnotationConfirmed(selection);
 }
 
-async function restorePageStyles(view: WebviewElement, anchor: ElementAnchor) {
-  const expression = `(${applyStylePreview.toString()})(${JSON.stringify(anchor.selector)},{})`;
-  await view.executeJavaScript(expression, true).catch(() => undefined);
+/** 页面里确认的批注是否可用（IPC 负载来自页面，做一次形状校验） */
+function isPageAnnotationSelection(
+  value: unknown,
+): value is PageAnnotationSelection {
+  if (!value || typeof value !== "object") return false;
+  const selection = value as Partial<PageAnnotationSelection>;
+  return (
+    !!selection.anchor &&
+    typeof selection.anchor.selector === "string" &&
+    typeof selection.comment === "string"
+  );
+}
+
+/** 截图 + 组装批注，交给消息区消费（上传附件并提交到会话） */
+async function handleAnnotationConfirmed(selection: PageAnnotationSelection) {
+  const sessionId = annotationSessionId ?? selectedSessionId.value;
+  if (!sessionId) {
+    toast.error("请先选择会话再提交网页批注");
+    return;
+  }
+
+  let screenshotPngBase64 = "";
+  try {
+    const image = await webviewRef.value?.capturePage();
+    if (image) screenshotPngBase64 = bytesToBase64(image.toPNG());
+  } catch {
+    // 截图失败不阻塞批注提交
+  }
+
+  annotations.enqueue(sessionId, {
+    annotation: {
+      id: createAnnotationId(),
+      anchor: selection.anchor,
+      comment: selection.comment,
+      styles: selection.styles,
+      createdAt: new Date().toISOString(),
+    },
+    screenshotPngBase64,
+  });
+  if (!screenshotPngBase64) toast.warning("批注截图获取失败，将只提交描述信息");
+}
+
+function createAnnotationId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `wa-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  );
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

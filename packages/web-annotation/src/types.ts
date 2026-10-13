@@ -21,7 +21,7 @@ export interface ElementAnchor {
 export interface PageAnnotationSelection {
   anchor: ElementAnchor;
   comment: string;
-  changes: StyleChanges;
+  styles: Record<EditableStyle, string>;
 }
 
 export const editableStyles = [
@@ -40,7 +40,10 @@ export interface WebAnnotation {
   id: string;
   anchor: ElementAnchor;
   comment: string;
-  changes: StyleChanges;
+  /** 用户修改过的属性；可由 styles 与 anchor.styles 推导，未推导时为空 */
+  changes?: StyleChanges;
+  /** 提交时元素的最新样式值 */
+  styles: Record<EditableStyle, string>;
   createdAt: string;
 }
 
@@ -51,8 +54,13 @@ export interface ConfirmedWebAnnotation {
 
 export type AnnotationWindow = Window & {
   inspectorBridge?: {
-    inspectConfirmed?: (selection: any) => void;
+    inspectConfirmed?: (selection: PageAnnotationSelection) => void;
     annotationExited?: () => void;
   };
+  /** 宿主 webview-preload 注入的桥（contextBridge 暴露） */
+  inspectConfirmed?: {
+    inspectConfirmed?: (selection: PageAnnotationSelection) => void;
+  };
   inspect?: () => void;
+  destroy?: () => void;
 };

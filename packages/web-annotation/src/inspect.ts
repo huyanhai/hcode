@@ -1,5 +1,5 @@
 import { composePageAnnotation, HAnnotation } from "./annotation";
-import type { AnnotationWindow, StyleChanges } from "./types";
+import type { AnnotationWindow, PageAnnotationSelection } from "./types";
 import { getSelectedElement } from "./utils/dom";
 
 /** This function is serialized and executed in the active Electron <webview>. */
@@ -73,83 +73,6 @@ export function selectPageElement() {
   let annotation = false;
 
   let annotationInstance: HAnnotation | null = null;
-  // let destroyed = false;
-
-  // function resolveSelector(selector: string): Element | null {
-  //   let root: Document | ShadowRoot = document;
-  //   let element: Element | null = null;
-  //   const sections = selector.split(" >>> ");
-  //   for (const [index, section] of sections.entries()) {
-  //     element = root.querySelector(section);
-  //     if (!element) return null;
-  //     if (index < sections.length - 1) {
-  //       if (!element.shadowRoot) return null;
-  //       root = element.shadowRoot;
-  //     }
-  //   }
-  //   return element;
-  // }
-
-  // function updateMarkers(): void {
-  //   const host = page.__hcodeAnnotationMarkerHost;
-  //   if (!host?.isConnected) return;
-  //   for (const marker of Array.from(
-  //     host.querySelectorAll<HTMLElement>("[data-hcode-annotation-marker]"),
-  //   )) {
-  //     const selector = marker.dataset.selector;
-  //     const element = selector ? resolveSelector(selector) : null;
-  //     if (!element) {
-  //       marker.style.display = "none";
-  //       continue;
-  //     }
-  //     const rect = element.getBoundingClientRect();
-  //     Object.assign(marker.style, {
-  //       display: "grid",
-  //       left: `${Math.max(2, rect.left - 12)}px`,
-  //       top: `${Math.max(2, rect.top - 12)}px`,
-  //     });
-  //   }
-  // }
-
-  // function addMarker(anchor: ElementAnchor): void {
-  //   let host = page.__hcodeAnnotationMarkerHost;
-  //   if (!host?.isConnected) {
-  //     host = document.createElement("div");
-  //     host.setAttribute("data-hcode-annotation-markers", "");
-  //     Object.assign(host.style, {
-  //       position: "fixed",
-  //       inset: "0",
-  //       zIndex: "2147483647",
-  //       pointerEvents: "none",
-  //     });
-  //     document.documentElement.append(host);
-  //     page.__hcodeAnnotationMarkerHost = host;
-  //     page.__hcodeAnnotationMarkerUpdate = updateMarkers;
-  //     window.addEventListener("resize", updateMarkers);
-  //     window.addEventListener("scroll", updateMarkers, true);
-  //   }
-  //   const marker = document.createElement("div");
-  //   marker.setAttribute("data-hcode-annotation-marker", "");
-  //   marker.dataset.selector = anchor.selector;
-  //   marker.textContent = String((page.__hcodeAnnotationMarkerCount ?? 0) + 1);
-  //   page.__hcodeAnnotationMarkerCount = Number(marker.textContent);
-  //   Object.assign(marker.style, {
-  //     position: "fixed",
-  //     display: "grid",
-  //     placeItems: "center",
-  //     width: "30px",
-  //     height: "30px",
-  //     borderRadius: "50%",
-  //     background: "#3298ff",
-  //     color: "#fff",
-  //     boxShadow: "0 1px 5px #0003",
-  //     font: '600 14px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
-  //     pointerEvents: "none",
-  //   });
-  //   marker.setAttribute("aria-label", `批注 ${marker.textContent}`);
-  //   host.append(marker);
-  //   page.__hcodeAnnotationMarkerUpdate?.();
-  // }
 
   function choose(point: { x: number; y: number }): HTMLElement | null {
     let element = document.elementFromPoint(point.x, point.y);
@@ -219,12 +142,23 @@ export function selectPageElement() {
     if (inspecting) hideNativeCursor();
   }
 
+  /** 把确认结果（备注 + 最新样式）提交给宿主 */
+  function submitAnnotation(selection: PageAnnotationSelection): void {
+    const bridge = page.inspectorBridge ?? page.inspectConfirmed;
+    if (!bridge?.inspectConfirmed) {
+      console.warn(
+        "[hcode-annotation] 未检测到宿主桥 window.inspectConfirmed，批注结果未提交",
+        selection,
+      );
+      return;
+    }
+    bridge.inspectConfirmed(selection);
+  }
+
   async function click(event: MouseEvent): Promise<void> {
     if (isAnnotationEvent(event)) return;
     const element = choose({ x: event.clientX, y: event.clientY });
     if (!element) return;
-    // event.preventDefault();
-    // event.stopImmediatePropagation();
     if (annotation) return;
     annotation = true;
     highlight.style.display = "none";
@@ -241,8 +175,10 @@ export function selectPageElement() {
     composer.addEventListener(
       "annotation-confirm",
       (event) => {
-        console.log(event)
         index++;
+        submitAnnotation(
+          (event as CustomEvent<PageAnnotationSelection>).detail,
+        );
         finishAnnotation();
       },
       { once: true },
@@ -280,90 +216,38 @@ export function selectPageElement() {
     restoreNativeCursor();
   }
 
+  /** 遮罩元素被 destroy 移除过时，重新挂载，保证 inspect() 可重复进入 */
+  function ensureOverlay(): void {
+    if (!highlight.isConnected) document.documentElement.append(highlight);
+    if (!hoverMarker.isConnected) document.documentElement.append(hoverMarker);
+  }
+
   function inspect() {
     if (inspecting) return;
     inspecting = true;
+    ensureOverlay();
     hideNativeCursor();
     document.addEventListener("pointermove", move, true);
     document.addEventListener("click", click, true);
     window.addEventListener("keydown", keydown, true);
   }
 
-  // function destroy() {
-  //   if (destroyed) return;
-  //   if (composerOpen) page.__hcodeAnnotationComposerCancel?.();
-  //   composerOpen = false;
-  //   stopInspecting();
-  //   destroyed = true;
-  //   highlight.remove();
-  //   if (page.__hcodeAnnotationController === controller) {
-  //     delete page.__hcodeAnnotationController;
-  //   }
-  //   if (page.__hcodeAnnotationCancel === destroy) {
-  //     delete page.__hcodeAnnotationCancel;
-  //   }
-  // }
+  /** 退出审查（hover）模式并清理所有临时元素 */
+  function destroy(): void {
+    inspecting = false;
+    annotation = false;
+    // 关掉正在编辑的批注卡片（会还原实时预览的样式）
+    const composer = annotationInstance;
+    annotationInstance = null;
+    if (composer?.isConnected) composer.dismiss();
+    stopInspecting();
+    highlight.remove();
+    hoverMarker.remove();
+    restoreNativeCursor();
+  }
 
   page.inspect = inspect;
+  page.destroy = destroy;
 }
 
 selectPageElement();
-
-/** Preview stays local to the page until it is replaced, restored or navigated away. */
-export function applyStylePreview(selector: string, changes: StyleChanges) {
-  console.log(selector, changes);
-  // const page = window as AnnotationWindow;
-  // const old = page.__hcodeAnnotationPreview;
-  // if (old) {
-  //   for (const [property, previous] of old.previous) {
-  //     old.element.style.setProperty(
-  //       property,
-  //       previous.value,
-  //       previous.priority,
-  //     );
-  //   }
-  //   delete page.__hcodeAnnotationPreview;
-  // }
-  // let root: Document | ShadowRoot = document;
-  // let element: Element | null = null;
-  // const sections = selector.split(" >>> ");
-  // for (const [index, section] of sections.entries()) {
-  //   element = root.querySelector(section);
-  //   if (!element) return false;
-  //   if (index < sections.length - 1) {
-  //     if (!element.shadowRoot) return false;
-  //     root = element.shadowRoot;
-  //   }
-  // }
-  // if (!(element instanceof HTMLElement)) return false;
-  // const previous = new Map<string, { value: string; priority: string }>();
-  // const allowed = new Set([
-  //   "color",
-  //   "background-color",
-  //   "opacity",
-  //   "font-size",
-  //   "font-family",
-  //   "font-weight",
-  // ]);
-  // for (const [property, value] of Object.entries(changes)) {
-  //   if (!allowed.has(property) || typeof value !== "string" || !value.trim())
-  //     continue;
-  //   previous.set(property, {
-  //     value: element.style.getPropertyValue(property),
-  //     priority: element.style.getPropertyPriority(property),
-  //   });
-  //   element.style.setProperty(property, value);
-  // }
-  // page.__hcodeAnnotationPreview = { element, previous };
-  // return true;
-}
-
-/** Renders the annotation composer inside the active Electron <webview> page. */
-
-export function registerIpc(webview: HTMLElement, cb?: EventListener) {
-  webview.addEventListener("ipc-message", cb as EventListener);
-}
-
-export function unregisterIpc(webview: HTMLElement, cb?: EventListener) {
-  webview.removeEventListener("ipc-message", cb as EventListener);
-}

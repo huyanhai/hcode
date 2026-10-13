@@ -470,15 +470,21 @@ export class HAnnotation extends LitElement {
     const anchor = this.anchor;
     if (!anchor || !this.isReady) return;
 
-    const comment = `${this.comment.trim()}${
-      this.editedText.trim() !== anchor.label
-        ? `\n文本：${anchor.label} → ${this.editedText.trim()}`
-        : ""
-    }`.trim();
+    const comment = this.comment.trim().trim();
+    // 提交时先刷新一次实时样式，保证带上的是元素当前最新值
+    this.refreshLiveStyles();
+    const styles = {} as Record<EditableStyle, string>;
+    for (const name of editableStyles) {
+      styles[name] =
+        this.changes[name] ??
+        this.liveStyles?.[name] ??
+        anchor.styles[name] ??
+        "";
+    }
     const selection: PageAnnotationSelection = {
       anchor,
       comment,
-      changes: this.changes,
+      styles,
     };
     this.dispatchEvent(
       new CustomEvent<PageAnnotationSelection>("annotation-confirm", {
@@ -494,6 +500,11 @@ export class HAnnotation extends LitElement {
     this.previewTextOriginal = null;
     window.removeEventListener("keydown", this.onKeydown, true);
   };
+
+  /** 供外部（宿主/审查控制器）关闭批注卡片：还原预览并移除自身 */
+  dismiss(): void {
+    this.cancel();
+  }
 
   private readonly cancel = (): void => {
     // 取消时还原所有实时预览的修改
