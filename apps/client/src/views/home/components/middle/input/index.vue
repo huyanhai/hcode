@@ -6,10 +6,10 @@
       <div class="w-full flex flex-col gap-2 px-4">
         <div
           class="flex gap-2 items-end"
-          v-if="modelData.attachments.length || modelData.comments.length"
+          v-if="visibleAttachments.length || modelData.comments.length"
         >
           <Attachment
-            v-for="item in modelData.attachments"
+            v-for="item in visibleAttachments"
             :key="item.id"
             :attachment="item"
             @remove="removeAttachment"
@@ -189,7 +189,7 @@ const objectUrls = new Set<string>();
 //#region Props
 //#endregion
 //#region Emits
-const emit = defineEmits(["submit", "stop", "editComment"]);
+const emit = defineEmits(["submit", "stop", "editComment", "removePin"]);
 //#endregion
 //#region Hooks
 //#endregion
@@ -211,6 +211,19 @@ const hasUploadError = computed(() =>
     (attachment) => attachment.uploadState === "error",
   ),
 );
+/** 被注释引用的截图附件不单独展示，改由注释条目左侧的缩略图呈现 */
+const visibleAttachments = computed(() => {
+  const linked = new Set(
+    modelData.value.comments.flatMap((comment) =>
+      comment.attachmentId ? [comment.attachmentId] : [],
+    ),
+  );
+  return modelData.value.attachments.filter(
+    // 上传后注释关联的是服务端附件 id，本地条目 id 和 uploaded.id 都要参与匹配
+    (attachment) =>
+      !linked.has(attachment.id) && !linked.has(attachment.uploaded?.id ?? ""),
+  );
+});
 //#endregion
 //#region Watch
 //#endregion
@@ -303,23 +316,35 @@ async function uploadSelectedAttachment(id: string, file: File) {
 }
 
 function removeAttachment(id: string) {
-  const attachment = modelData.value.attachments.find((item) => item.id === id);
-  if (attachment?.previewUrl && objectUrls.has(attachment.previewUrl)) {
+  // id 可能是本地条目 id，也可能是上传后的服务端附件 id（注释关联用的是后者）
+  const attachment = modelData.value.attachments.find(
+    (item) => item.id === id || item.uploaded?.id === id,
+  );
+  if (!attachment) return;
+  if (attachment.previewUrl && objectUrls.has(attachment.previewUrl)) {
     URL.revokeObjectURL(attachment.previewUrl);
     objectUrls.delete(attachment.previewUrl);
   }
   modelData.value.attachments = modelData.value.attachments.filter(
-    (item) => item.id !== id,
+    (item) => item !== attachment,
   );
 }
 
 function removeComment(id: string) {
+  const comment = modelData.value.comments.find((item) => item.id === id);
+  // 网页批注：通知宿主移除页面上的标记 pin
+  if (comment?.pinIndex != null) emit("removePin", comment.pinIndex);
+  // 注释与截图附件是一体的：删注释时连截图一起移除
+  if (comment?.attachmentId) removeAttachment(comment.attachmentId);
   modelData.value.comments = modelData.value.comments.filter(
-    (comment) => comment.id !== id,
+    (item) => item.id !== id,
   );
 }
 
 function clearComments() {
+  for (const comment of modelData.value.comments) {
+    if (comment.attachmentId) removeAttachment(comment.attachmentId);
+  }
   modelData.value.comments = [];
 }
 

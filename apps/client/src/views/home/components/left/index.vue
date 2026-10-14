@@ -1,6 +1,9 @@
 <template>
   <div class="flex flex-col h-full">
-    <div class="pt-14 px-2 flex h-full flex-col gap-4 flex-1">
+    <div class="h-12 flex items-center px-2" :class="isDesktop && 'pl-20'">
+      <ChangeTabBtn v-bind="$attrs" />
+    </div>
+    <div class="px-2 flex h-full flex-col gap-4 flex-1">
       <Button class="menu-button" variant="ghost" @click="startNewSession">
         <SquarePen animateOnHover triggerTarget="parent" />
         新会话
@@ -235,6 +238,8 @@ import {
   useSessionSelection,
 } from "@/stores/session-selection";
 import { cn } from "@/lib/utils.js";
+import ChangeTabBtn from "../change-tab-btn/index.vue";
+import { useDesktop } from "@/hooks/useDesktop.js";
 
 const showProject = ref(true);
 const showRecent = ref(true);
@@ -255,6 +260,7 @@ const workspacesQuery = useQuery<WorkspaceSummary[]>({
 const workspaces = computed<WorkspaceSummary[]>(
   () => workspacesQuery.data.value ?? [],
 );
+
 const sessionsQuery = useQuery<SessionSummary[]>({
   queryKey: ["sessions"],
   queryFn: () => listSessions(),
@@ -269,6 +275,9 @@ const sessionsByWorkspace = computed<Record<string, SessionSummary[]>>(() => {
     return groups;
   }, {});
 });
+
+const { isDesktop } = useDesktop();
+
 const recentSessions = computed(() =>
   (sessionsQuery.data.value ?? []).filter((session) => !session.workspaceId),
 );

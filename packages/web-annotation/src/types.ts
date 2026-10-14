@@ -22,6 +22,8 @@ export interface PageAnnotationSelection {
   anchor: ElementAnchor;
   comment: string;
   styles: Record<EditableStyle, string>;
+  /** 页面内标记序号（pin 上显示的数字），宿主靠它定位/删除标记、关联输入框注释 */
+  pinIndex?: number;
 }
 
 export const editableStyles = [
@@ -44,6 +46,8 @@ export interface WebAnnotation {
   changes?: StyleChanges;
   /** 提交时元素的最新样式值 */
   styles: Record<EditableStyle, string>;
+  /** 页面内标记序号，二次编辑/删除时定位 pin */
+  pinIndex?: number;
   createdAt: string;
 }
 
@@ -64,4 +68,12 @@ export type AnnotationWindow = Window & {
   };
   inspect?: () => void;
   destroy?: () => void;
+  /** 宿主截图完成后回调，清除批注边框 */
+  releaseAnnotationHighlight?: () => void;
+  /** 定位并重新打开指定序号的批注卡片（二次编辑），找不到返回 false */
+  editWebAnnotation?: (pinIndex: number) => boolean;
+  /** 移除指定序号的标记（pin），找不到返回 false */
+  removeWebAnnotation?: (pinIndex: number) => boolean;
+  /** 防止脚本重复注入时重复挂 document 级监听 */
+  __hcodeConfirmRelay?: boolean;
 };

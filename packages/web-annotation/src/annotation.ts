@@ -506,6 +506,18 @@ export class HAnnotation extends LitElement {
     this.cancel();
   }
 
+  /** 供宿主二次编辑：滚动到标记位置并重新打开卡片（保留已填备注与样式修改） */
+  reveal(): void {
+    const el = this.pin;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      window.scrollBy({ top: rect.top - window.innerHeight / 2 });
+    }
+    // confirm() 里会移除 Esc 监听，重开时补回
+    window.addEventListener("keydown", this.onKeydown, true);
+    this.confirmed = false;
+  }
+
   private readonly cancel = (): void => {
     // 取消时还原所有实时预览的修改
     this.restorePreview();

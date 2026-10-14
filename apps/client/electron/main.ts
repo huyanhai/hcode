@@ -1,5 +1,25 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, session, webContents } from "electron";
 import { join } from "node:path";
+
+/**
+ * webview 截图必须在主进程执行：
+ * <webview>.capturePage() 会让宿主渲染进程崩溃（V8 Empty MaybeLocal，Electron 44 实测复现）。
+ * 这里校验目标必须是 webview guest，避免被用来截任意窗口。
+ */
+ipcMain.handle("webview:capture", async (_event, webContentsId: number) => {
+  const guest = webContents.fromId(Number(webContentsId));
+  if (!guest || guest.isDestroyed() || guest.getType() !== "webview") return "";
+  const image = await guest.capturePage();
+  return image ? image.toPNG().toString("base64") : "";
+});
+
+/** 渲染进程崩溃日志，便于排查白屏类问题 */
+app.on("render-process-gone", (_event, contents, details) => {
+  if (details.reason === "clean-exit") return;
+  console.error(
+    `[client] render-process-gone type=${contents.getType()} reason=${details.reason} exitCode=${details.exitCode}`,
+  );
+});
 
 /** 切换某个 webview 自己的 DevTools（独立窗口，和主窗口的 DevTools 互不影响） */
 function toggleWebviewDevTools(contents: Electron.WebContents): void {

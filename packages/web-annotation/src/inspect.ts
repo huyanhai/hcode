@@ -73,8 +73,16 @@ export function selectPageElement() {
   let annotation = false;
 
   let annotationInstance: HAnnotation | null = null;
+  /** 已首次确认过的卡片：再次 annotation-confirm 视为二次编辑的重新提交 */
+  const submittedComposers = new WeakSet<HAnnotation>();
   /** 批注编辑中的目标元素：高亮边框锚定在它上面，直到确认/取消才清除 */
   let annotationTarget: HTMLElement | null = null;
+  /**
+   * 确认后的截图等待期：边框与 marker 保持显示，等宿主截图完成
+   * （宿主回调 releaseAnnotationHighlight）后再清除，保证截图带边框。
+   */
+  let capturing = false;
+  let captureFallbackTimer = 0;
 
   function choose(point: { x: number; y: number }): HTMLElement | null {
     let element = document.elementFromPoint(point.x, point.y);
@@ -110,9 +118,14 @@ export function selectPageElement() {
 
   function move(event: PointerEvent): void {
     const element = choose({ x: event.clientX, y: event.clientY });
-    if (!element || annotation || isAnnotationEvent(event)) {
-      // 批注编辑期间高亮边框锚定在选中元素上，不随 hover 移动或隐藏
-      if (!annotation) highlight.style.display = "none";
+    if (
+      !element ||
+      annotation ||
+      capturing ||
+      isAnnotationEvent(event)
+    ) {
+      // 批注编辑/截图等待期间高亮边框锚定在选中元素上，不随 hover 移动或隐藏
+      if (!annotation && !capturing) highlight.style.display = "none";
       hoverMarker.style.display = "none";
       return;
     }
@@ -141,7 +154,7 @@ export function selectPageElement() {
 
   /** 把高亮边框对齐到批注目标元素当前位置（滚动/缩放时跟随） */
   function syncAnnotationHighlight(): void {
-    if (!annotation || !annotationTarget) return;
+    if ((!annotation && !capturing) || !annotationTarget) return;
     const rect = annotationTarget.getBoundingClientRect();
     Object.assign(highlight.style, {
       display: "block",
@@ -150,6 +163,15 @@ export function selectPageElement() {
       width: `${rect.width}px`,
       height: `${rect.height}px`,
     });
+  }
+
+  /** 宿主截图完成后调用：清除锚定边框，回到 hover 高亮模式 */
+  function releaseAnnotationHighlight(): void {
+    window.clearTimeout(captureFallbackTimer);
+    capturing = false;
+    annotationTarget = null;
+    highlight.style.display = "none";
+    if (inspecting) hideNativeCursor();
   }
 
   function finishAnnotation(): void {
@@ -175,9 +197,9 @@ export function selectPageElement() {
 
   async function click(event: MouseEvent): Promise<void> {
     if (isAnnotationEvent(event)) return;
+    if (annotation || capturing) return;
     const element = choose({ x: event.clientX, y: event.clientY });
     if (!element) return;
-    if (annotation) return;
     annotation = true;
     annotationTarget = element;
     hoverMarker.style.display = "none";
@@ -194,11 +216,22 @@ export function selectPageElement() {
     composer.addEventListener(
       "annotation-confirm",
       (event) => {
+        submittedComposers.add(composer);
+        submitAnnotation({
+          ...(event as CustomEvent<PageAnnotationSelection>).detail,
+          pinIndex: index + 1,
+        });
         index++;
-        submitAnnotation(
-          (event as CustomEvent<PageAnnotationSelection>).detail,
+        // 进入截图等待期：边框与 marker 保留在页面上，宿主截图完成后清除
+        annotation = false;
+        annotationInstance = null;
+        capturing = true;
+        // 兜底：宿主未响应时自动清除，避免边框一直残留
+        window.clearTimeout(captureFallbackTimer);
+        captureFallbackTimer = window.setTimeout(
+          releaseAnnotationHighlight,
+          1500,
         );
-        finishAnnotation();
       },
       { once: true },
     );
@@ -267,6 +300,8 @@ export function selectPageElement() {
     inspecting = false;
     annotation = false;
     annotationTarget = null;
+    capturing = false;
+    window.clearTimeout(captureFallbackTimer);
     // 关掉正在编辑的批注卡片（会还原实时预览的样式）
     const composer = annotationInstance;
     annotationInstance = null;
@@ -277,8 +312,44 @@ export function selectPageElement() {
     restoreNativeCursor();
   }
 
+  function findComposer(pinIndex: number): HAnnotation | null {
+    for (const el of document.querySelectorAll("h-annotation")) {
+      if (el instanceof HAnnotation && el.index === pinIndex) return el;
+    }
+    return null;
+  }
+
   page.inspect = inspect;
   page.destroy = destroy;
+  page.releaseAnnotationHighlight = releaseAnnotationHighlight;
+  page.editWebAnnotation = (pinIndex: number): boolean => {
+    const target = findComposer(pinIndex);
+    if (!target) return false;
+    target.reveal();
+    return true;
+  };
+  page.removeWebAnnotation = (pinIndex: number): boolean => {
+    const target = findComposer(pinIndex);
+    if (!target) return false;
+    target.remove();
+    return true;
+  };
+
+  // 二次编辑后的重新确认：click() 里的 once 监听只覆盖首次确认，
+  // 这里用一个 document 级中继把已确认卡片的再次提交转发给宿主。
+  // 脚本可能随页面加载重复注入，用标记防止监听器叠加。
+  if (!page.__hcodeConfirmRelay) {
+    page.__hcodeConfirmRelay = true;
+    document.addEventListener("annotation-confirm", (event) => {
+      const composer = event.target;
+      if (!(composer instanceof HAnnotation)) return;
+      if (!submittedComposers.has(composer)) return;
+      submitAnnotation({
+        ...(event as CustomEvent<PageAnnotationSelection>).detail,
+        pinIndex: composer.index,
+      });
+    });
+  }
 }
 
 selectPageElement();

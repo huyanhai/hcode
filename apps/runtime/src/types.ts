@@ -14,6 +14,8 @@ export type PiComment = {
   messageId?: string;
   startOffset?: number;
   endOffset?: number;
+  /** 关联的截图附件 id（注释缩略图与附件的关联关系） */
+  attachmentId?: string;
 };
 export type PiProfile = {
   id: string;

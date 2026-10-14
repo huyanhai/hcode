@@ -1,218 +1,243 @@
 <template>
-  <div
-    class="flex flex-col h-full relative border-t bg-background text-foreground"
-  >
-    <div class="h-12 shrink-0 border-b"></div>
-    <div
-      ref="messagePanelRef"
-      class="relative px-4 h-1/2 flex-1 box-border w-full max-w-[900px] mx-auto flex flex-col"
-    >
-      <MessageScroller class="h-1/2 flex-1">
-        <MessageScrollerViewport
-          class="relative no-scrollbar pb-10 pt-4"
-          @scroll="handleViewportScroll"
-          @pointerdown="handleViewportPointerDown"
-        >
-          <MessageScrollerContent>
-            <MessageScrollerItem
-              v-for="message in messages"
-              :key="message.id"
-              :message-id="message.id"
-              :scroll-anchor="
-                message.role === 'user' || message.id === messages.at(-1)?.id
-              "
-              @mouseup="handleMessageSelection($event, message.id)"
-            >
-              <div v-if="message.role === 'user'" class="flex justify-end">
-                <div
-                  v-if="editingMessageId === message.id"
-                  class="w-full max-w-[min(760px,calc(100vw-2rem))] rounded-2xl bg-muted/70 p-4"
-                >
-                  <MessageAttachments
-                    v-if="message.attachments?.length"
-                    :attachments="message.attachments"
-                  />
-                  <InputArea
-                    v-model="editingContent"
-                    placeholder="编辑消息"
-                    @submit="submitEdit(message)"
-                  />
-                  <div class="mt-3 flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      :disabled="sending"
-                      @click="cancelEdit"
-                    >
-                      取消
-                    </Button>
-                    <Button
-                      size="sm"
-                      :disabled="
-                        sending ||
-                        (!editingContent.trim() &&
-                          !message.attachments?.length &&
-                          !message.comments?.length)
-                      "
-                      @click="submitEdit(message)"
-                    >
-                      {{ sending ? "发送中..." : "发送" }}
-                    </Button>
-                  </div>
-                </div>
-                <template v-else>
-                  <Bubble variant="muted" align="end">
-                    <MessageAttachments
-                      v-if="message.attachments?.length"
-                      :attachments="message.attachments"
-                    />
-                    <div
-                      class="flex justify-end py-1"
-                      v-if="message.comments?.length"
-                    >
-                      <Comment align="end" :readonly="true" :comments="message.comments" />
-                    </div>
-                    <BubbleContent class="text-base">
-                      <Markdown
-                        :content="message.content"
-                        :annotations="commentsForMessage(message.id)"
-                        @annotation-click="
-                          (id, event) =>
-                            openCommentAtMarker(message.id, id, event)
-                        "
-                      />
-                    </BubbleContent>
-                    <div
-                      class="mt-1 flex items-center justify-end text-xs text-muted-foreground"
-                    >
-                      <span class="mr-2">{{
-                        formatMessageTime(message.createdAt)
-                      }}</span>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        style="transform: scale(0.9)"
-                        @click="copyMessage(message.content)"
-                      >
-                        <Copy />
-                      </Button>
-                      <Button
-                        size="icon-sm"
-                        variant="ghost"
-                        style="transform: scale(0.9)"
-                        v-if="message.id === lastUserMessageId && !sending"
-                        @click="startEdit(message)"
-                      >
-                        <Pencil />
-                      </Button>
-                    </div>
-                  </Bubble>
-                </template>
-              </div>
-              <template v-else>
-                <ResponseProgress
-                  v-if="message.streamStatus"
-                  :status="message.streamStatus"
-                  :started-at="message.startedAt"
-                  :completed-at="message.completedAt"
-                >
-                  <ResponseTimeline :items="processTimelineItems(message)" />
-                </ResponseProgress>
-                <ResponseTimeline v-else :items="timelineItems(message)" />
-                <Markdown
-                  v-if="finalResponseContent(message)"
-                  class="text-base"
-                  :content="finalResponseContent(message)"
-                  :annotations="commentsForMessage(message.id)"
-                  @annotation-click="
-                    (id, event) => openCommentAtMarker(message.id, id, event)
-                  "
-                />
-                <Thinking
-                  v-if="
-                    !isStreamFinished(message.streamStatus) &&
-                    latestReasoning(message.reasoning)
-                  "
-                  single-line
-                >
-                  {{ latestReasoning(message.reasoning) }}
-                </Thinking>
-              </template>
-            </MessageScrollerItem>
-          </MessageScrollerContent>
-          <div
-            v-if="selectionMenu"
-            data-selection-menu
-            class="absolute z-50"
-            :style="{
-              left: `${selectionMenu.x}px`,
-              top: `${selectionMenu.y}px`,
-            }"
-          >
-            <Button size="sm" variant="outline" @click="openSelectionComment">
-              <MessageSquare class="size-4" />
-              添加评论
-            </Button>
-          </div>
-          <div
-            v-if="commentEditor"
-            data-comment-editor
-            class="absolute z-50 w-80 max-w-[calc(100vw-1rem)]"
-            :style="{
-              left: `${commentEditor.x}px`,
-              top: `${commentEditor.y}px`,
-            }"
-            @click.stop
-          >
-            <CommentEditor
-              :selected-text="commentEditor.selectedText"
-              :initial-content="commentEditor.initialContent"
-              @cancel="closeCommentEditor"
-              @confirm="saveComment"
-            />
-          </div>
-        </MessageScrollerViewport>
-        <MessageScrollerButton
-          class="rounded-full border glass-bg"
-          direction="end"
-        >
-          <Ellipsis class="w-6! h-6! dot-bounce opacity-50" v-if="sending" />
-          <MoveDown class="opacity-50" v-else />
-        </MessageScrollerButton>
-      </MessageScroller>
-      <ApprovalRequest
-        v-if="pendingApprovalRequest"
-        class="mt-0 mb-4 w-full"
-        :tool-name="pendingApprovalRequest.toolName"
-        :input="pendingApprovalRequest.input"
-        :busy="respondingApprovalId === pendingApprovalRequest.approvalId"
-        @respond="
-          respondToApproval(
-            pendingApprovalRequest.messageId,
-            pendingApprovalRequest.approvalId,
-            $event,
-          )
-        "
+  <div class="flex flex-col h-full relative pb-2">
+    <div class="h-12 shrink-0 flex items-center justify-between px-2">
+      <ChangeTabBtn
+        :class="cn('flex-none',!showLeft && isDesktop && 'ml-[71px]')"
+        v-model="showLeft"
+        v-if="!showLeft"
+        direction="left"
       />
-      <Input
-        v-else
-        class="mb-4"
-        v-model="data"
-        :models="modelOptions"
-        :sending="sending"
-        :disabled="!selectedSessionId"
-        @submit="submit"
-        @stop="stopTurn"
-        @edit-comment="editInputComment"
+      <ChangeTabBtn
+        class="flex-none ml-auto"
+        v-model="showRight"
+        v-if="!showRight"
       />
     </div>
-    <ChatHistoryRail
-      v-if="historyTurns.length"
-      :active-fn="isActiveHistoryTurn"
-      :items="historyTurns"
-      class="absolute left-0 top-1/2 -translate-y-1/2"
-      @select="scrollToHistoryTurn"
-    />
+    <div
+      :class="
+        cn(
+          'relative bg-background border border-r-0 rounded-tl-2xl rounded-bl-2xl text-foreground flex-auto h-1/2',
+          !showRight && 'rounded-br-2xl rounded-tr-2xl border-r mr-2',
+          !showLeft && 'ml-2',
+        )
+      "
+    >
+      <div
+        ref="messagePanelRef"
+        class="relative h-full px-4 flex-1 box-border w-full max-w-[900px] mx-auto flex flex-col"
+      >
+        <MessageScroller class="h-1/2 flex-1">
+          <MessageScrollerViewport
+            class="relative no-scrollbar pb-10 pt-4"
+            @scroll="handleViewportScroll"
+            @pointerdown="handleViewportPointerDown"
+          >
+            <MessageScrollerContent>
+              <MessageScrollerItem
+                v-for="message in messages"
+                :key="message.id"
+                :message-id="message.id"
+                :scroll-anchor="
+                  message.role === 'user' || message.id === messages.at(-1)?.id
+                "
+                @mouseup="handleMessageSelection($event, message.id)"
+              >
+                <div v-if="message.role === 'user'" class="flex justify-end">
+                  <div
+                    v-if="editingMessageId === message.id"
+                    class="w-full max-w-[min(760px,calc(100vw-2rem))] rounded-2xl bg-muted/70 p-4"
+                  >
+                    <MessageAttachments
+                      v-if="bubbleAttachments(message).length"
+                      :attachments="bubbleAttachments(message)"
+                    />
+                    <InputArea
+                      v-model="editingContent"
+                      placeholder="编辑消息"
+                      @submit="submitEdit(message)"
+                    />
+                    <div class="mt-3 flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        :disabled="sending"
+                        @click="cancelEdit"
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        size="sm"
+                        :disabled="
+                          sending ||
+                          (!editingContent.trim() &&
+                            !message.attachments?.length &&
+                            !message.comments?.length)
+                        "
+                        @click="submitEdit(message)"
+                      >
+                        {{ sending ? "发送中..." : "发送" }}
+                      </Button>
+                    </div>
+                  </div>
+                  <template v-else>
+                    <Bubble variant="muted" align="end">
+                      <MessageAttachments
+                        v-if="bubbleAttachments(message).length"
+                        :attachments="bubbleAttachments(message)"
+                      />
+                      <div
+                        class="flex justify-end py-1"
+                        v-if="bubbleComments(message).length"
+                      >
+                        <Comment
+                          align="end"
+                          :readonly="true"
+                          :comments="bubbleComments(message)"
+                        />
+                      </div>
+                      <BubbleContent class="text-base" v-if="message.content">
+                        <Markdown
+                          :content="message.content"
+                          :annotations="commentsForMessage(message.id)"
+                          @annotation-click="
+                            (id, event) =>
+                              openCommentAtMarker(message.id, id, event)
+                          "
+                        />
+                      </BubbleContent>
+                      <div
+                        class="mt-1 flex items-center justify-end text-xs text-muted-foreground"
+                      >
+                        <span class="mr-2">{{
+                          formatMessageTime(message.createdAt)
+                        }}</span>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          style="transform: scale(0.9)"
+                          @click="copyMessage(message.content)"
+                        >
+                          <Copy />
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
+                          style="transform: scale(0.9)"
+                          v-if="message.id === lastUserMessageId && !sending"
+                          @click="startEdit(message)"
+                        >
+                          <Pencil />
+                        </Button>
+                      </div>
+                    </Bubble>
+                  </template>
+                </div>
+                <template v-else>
+                  <ResponseProgress
+                    v-if="message.streamStatus"
+                    :status="message.streamStatus"
+                    :started-at="message.startedAt"
+                    :completed-at="message.completedAt"
+                  >
+                    <ResponseTimeline :items="processTimelineItems(message)" />
+                  </ResponseProgress>
+                  <ResponseTimeline v-else :items="timelineItems(message)" />
+                  <Markdown
+                    v-if="finalResponseContent(message)"
+                    class="text-base"
+                    :content="finalResponseContent(message)"
+                    :annotations="commentsForMessage(message.id)"
+                    @annotation-click="
+                      (id, event) => openCommentAtMarker(message.id, id, event)
+                    "
+                  />
+                  <Thinking
+                    v-if="
+                      !isStreamFinished(message.streamStatus) &&
+                      latestReasoning(message.reasoning)
+                    "
+                    single-line
+                  >
+                    {{ latestReasoning(message.reasoning) }}
+                  </Thinking>
+                </template>
+              </MessageScrollerItem>
+            </MessageScrollerContent>
+            <div
+              v-if="selectionMenu"
+              data-selection-menu
+              class="absolute z-50"
+              :style="{
+                left: `${selectionMenu.x}px`,
+                top: `${selectionMenu.y}px`,
+              }"
+            >
+              <Button size="sm" variant="outline" @click="openSelectionComment">
+                <MessageSquare class="size-4" />
+                添加评论
+              </Button>
+            </div>
+            <div
+              v-if="commentEditor"
+              data-comment-editor
+              class="absolute z-50 w-80 max-w-[calc(100vw-1rem)]"
+              :style="{
+                left: `${commentEditor.x}px`,
+                top: `${commentEditor.y}px`,
+              }"
+              @click.stop
+            >
+              <CommentEditor
+                :selected-text="commentEditor.selectedText"
+                :initial-content="commentEditor.initialContent"
+                @cancel="closeCommentEditor"
+                @confirm="saveComment"
+              />
+            </div>
+          </MessageScrollerViewport>
+          <MessageScrollerButton
+            class="rounded-full border glass-bg"
+            direction="end"
+          >
+            <Ellipsis class="w-6! h-6! dot-bounce opacity-50" v-if="sending" />
+            <MoveDown class="opacity-50" v-else />
+          </MessageScrollerButton>
+        </MessageScroller>
+        <ApprovalRequest
+          v-if="pendingApprovalRequest"
+          class="mt-0 mb-4 w-full"
+          :tool-name="pendingApprovalRequest.toolName"
+          :input="pendingApprovalRequest.input"
+          :busy="respondingApprovalId === pendingApprovalRequest.approvalId"
+          @respond="
+            respondToApproval(
+              pendingApprovalRequest.messageId,
+              pendingApprovalRequest.approvalId,
+              $event,
+            )
+          "
+        />
+        <Input
+          v-else
+          class="mb-4"
+          v-model="data"
+          :models="modelOptions"
+          :sending="sending"
+          :disabled="!selectedSessionId"
+          @submit="submit"
+          @stop="stopTurn"
+          @edit-comment="editInputComment"
+          @remove-pin="removePagePin"
+        />
+      </div>
+      <ChatHistoryRail
+        v-if="historyTurns.length"
+        :active-fn="isActiveHistoryTurn"
+        :items="historyTurns"
+        class="absolute left-0 top-1/2 -translate-y-1/2"
+        @select="scrollToHistoryTurn"
+      />
+    </div>
   </div>
 </template>
 <script lang="ts" setup>
@@ -260,6 +285,9 @@ import InputArea from "./input/InputArea.vue";
 import CommentEditor from "./input/CommentEditor.vue";
 import { Button } from "@/components/ui/button";
 import Comment from "./input/Comment.vue";
+import ChangeTabBtn from "../change-tab-btn/index.vue";
+import { cn } from "@/lib/utils.js";
+import { useDesktop } from "@/hooks/useDesktop.js";
 
 const data = reactive<SubmitPayload>({
   comments: [],
@@ -306,6 +334,8 @@ const defaultProfile = computed<ModelProfileSummary | undefined>(() => {
   return profiles.find((profile) => profile.isDefault) ?? profiles[0];
 });
 
+const showLeft = defineModel<boolean>("left");
+const showRight = defineModel<boolean>("right");
 //#region Props
 //#endregion
 //#region Emits
@@ -341,6 +371,7 @@ onActivated(() => {
 //#endregion
 //#region Watch
 //#region Computed
+const { isDesktop } = useDesktop();
 // 消息列表
 const messages = computed(() => sessionQuery.data.value?.messages ?? []);
 const pendingApprovalRequest = computed(() => {
@@ -454,14 +485,20 @@ function scrollToHistoryTurn(item: ChatHistoryRailItem) {
   });
 }
 
-async function submit(override?: { sessionId: string; content: string; attachments: MessageAttachment[] }) {
+async function submit(override?: {
+  sessionId: string;
+  content: string;
+  attachments: MessageAttachment[];
+}) {
   const sessionId = override?.sessionId ?? selectedSessionId.value;
   const content = override?.content.trim() ?? data.content.trim();
-  const attachments = override?.attachments ?? data.attachments.flatMap((attachment) =>
-    attachment.uploadState === "uploaded" && attachment.uploaded
-      ? [attachment.uploaded]
-      : [],
-  );
+  const attachments =
+    override?.attachments ??
+    data.attachments.flatMap((attachment) =>
+      attachment.uploadState === "uploaded" && attachment.uploaded
+        ? [attachment.uploaded]
+        : [],
+    );
   if (
     !sessionId ||
     (!content && !attachments.length) ||
@@ -486,7 +523,7 @@ async function submit(override?: { sessionId: string; content: string; attachmen
       role: "user" as const,
       content,
       attachments,
-      comments: override ? [] : data.comments.map((comment) => ({ ...comment })),
+      comments: override ? [] : commentPayload(),
       sequence: (current?.messages.at(-1)?.sequence ?? 0) + 1,
       createdAt: String(Date.now()),
     };
@@ -515,7 +552,7 @@ async function submit(override?: { sessionId: string; content: string; attachmen
       {
         content,
         attachments,
-        comments: override ? [] : data.comments.map((comment) => ({ ...comment })),
+        comments: override ? [] : commentPayload(),
         profileId: defaultProfile.value?.id,
         model: data.model || undefined,
         fullAccess: data.fullAccess,
@@ -550,22 +587,91 @@ async function submit(override?: { sessionId: string; content: string; attachmen
 }
 
 watch(
-  [() => webAnnotations.pending.length, sending, selectedSessionId],
-  () => { void processWebAnnotations(); },
+  () => webAnnotations.pending.length,
+  () => {
+    void processWebAnnotations();
+  },
   { immediate: true },
 );
 
+/** 网页批注确认后进入输入框：备注 + 截图缩略图统一由 Comment 组件展示 */
 async function processWebAnnotations(): Promise<void> {
-  if (processingWebAnnotation || sending.value) return;
+  if (processingWebAnnotation) return;
   const item = webAnnotations.shift();
   if (!item) return;
   processingWebAnnotation = true;
   try {
-    const screenshot = screenshotFile(item.result);
-    const attachment = await uploadAttachment(screenshot);
-    await submit({ sessionId: item.sessionId, content: '', attachments: [attachment] });
-  } catch (error) {
-    toast.error(error instanceof Error ? error.message : "发送网页批注失败");
+    const { annotation, screenshotPngBase64 } = item.result;
+
+    // 页面二次编辑后的重新提交：按 pinIndex 找到已有注释，只同步文字，
+    // 不重复添加截图附件
+    if (annotation.pinIndex != null) {
+      const existing = data.comments.find(
+        (candidate) => candidate.pinIndex === annotation.pinIndex,
+      );
+      if (existing) {
+        existing.content = annotation.comment;
+        existing.selectedText =
+          annotation.anchor.label || annotation.anchor.nearbyText;
+        return;
+      }
+    }
+
+    const previewUrl = screenshotPngBase64
+      ? `data:image/png;base64,${screenshotPngBase64}`
+      : undefined;
+
+    // 截图仍然要作为图片附件发给模型，但它不单独占一张附件卡片：
+    // 由下面的注释条目引用，显示在该条目左侧。
+    let attachmentId: string | undefined;
+    if (screenshotPngBase64) {
+      const file = screenshotFile(item.result);
+      attachmentId = annotation.id;
+      data.attachments.push({
+        id: annotation.id,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        file,
+        uploadState: "uploading",
+        previewUrl,
+      });
+    }
+
+    data.comments.push({
+      id: crypto.randomUUID(),
+      content: annotation.comment,
+      selectedText: annotation.anchor.label || annotation.anchor.nearbyText,
+      imageUrl: previewUrl,
+      attachmentId,
+      pinIndex: annotation.pinIndex,
+      imageState: previewUrl ? "uploading" : undefined,
+    });
+
+    if (attachmentId) {
+      const stored = data.attachments.find(
+        (candidate) => candidate.id === attachmentId,
+      );
+      const comment = data.comments.find(
+        (candidate) => candidate.attachmentId === attachmentId,
+      );
+      if (stored) {
+        try {
+          stored.uploaded = await uploadAttachment(stored.file);
+          stored.uploadState = "uploaded";
+          if (comment) {
+            // 关联 id 换成服务端附件 id，随消息持久化，气泡里靠它找回截图
+            comment.attachmentId = stored.uploaded.id;
+            comment.imageState = "uploaded";
+          }
+        } catch (cause) {
+          stored.uploadState = "error";
+          stored.uploadError =
+            cause instanceof Error ? cause.message : "附件上传失败";
+          if (comment) comment.imageState = "error";
+        }
+      }
+    }
   } finally {
     processingWebAnnotation = false;
     if (webAnnotations.pending.length) void processWebAnnotations();
@@ -575,7 +681,9 @@ async function processWebAnnotations(): Promise<void> {
 function screenshotFile(item: ConfirmedWebAnnotation): File {
   const binary = atob(item.screenshotPngBase64);
   const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-  return new File([bytes], `web-annotation-${item.annotation.id}.png`, { type: "image/png" });
+  return new File([bytes], `web-annotation-${item.annotation.id}.png`, {
+    type: "image/png",
+  });
 }
 
 type SessionMessage = SessionDetail["messages"][number];
@@ -584,7 +692,8 @@ function startEdit(message: SessionMessage) {
   if (sending.value || message.id !== lastUserMessageId.value) return;
   editingMessageId.value = message.id;
   editingContent.value = message.content;
-  data.comments = (message.comments ?? []).map((comment) => ({ ...comment }));
+  // bubbleComments 已按 attachmentId 关联回截图地址，编辑态弹窗也能显示缩略图
+  data.comments = bubbleComments(message).map((comment) => ({ ...comment }));
 }
 
 function commentsForMessage(messageId: string) {
@@ -601,6 +710,43 @@ function commentsForMessage(messageId: string) {
     if (comment.messageId === messageId) byId.set(comment.id, comment);
   }
   return [...byId.values()];
+}
+
+/** 发送给服务端的注释：只保留可持久化字段，本地预览 data URL / 上传状态不上传 */
+function commentPayload() {
+  return data.comments.map(
+    ({ imageUrl: _imageUrl, imageState: _imageState, ...rest }) => rest,
+  );
+}
+
+/** 消息气泡里的附件：被注释引用的截图不单独展示，归入注释弹窗 */
+function bubbleAttachments(message: SessionMessage) {
+  const commentedIds = new Set(
+    (message.comments ?? [])
+      .map((comment) => comment.attachmentId)
+      .filter(Boolean),
+  );
+  return (message.attachments ?? []).filter(
+    (attachment) => !commentedIds.has(attachment.id),
+  );
+}
+
+/** 消息气泡里的注释：按 attachmentId 从消息附件中找回截图地址，弹窗内展示缩略图 */
+function bubbleComments(message: SessionMessage) {
+  const byId = new Map(
+    (message.attachments ?? []).map((attachment) => [
+      attachment.id,
+      attachment,
+    ]),
+  );
+  return (message.comments ?? []).map((comment) => {
+    const image = comment.attachmentId
+      ? byId.get(comment.attachmentId)
+      : undefined;
+    return image
+      ? { ...comment, imageUrl: image.url, imageState: "uploaded" as const }
+      : comment;
+  });
 }
 
 function openCommentAtMarker(
@@ -701,6 +847,14 @@ function openSelectionComment() {
 function editInputComment(id: string) {
   const comment = data.comments.find((item) => item.id === id);
   if (!comment) return;
+  // 网页批注：定位右侧页面上的标记 pin 并重新打开批注卡片做二次编辑，
+  // 不能落入下面的消息区编辑器（没有 messageId，会错误地弹在消息列表里）
+  if (comment.pinIndex != null) {
+    void runInActiveWebview(`window.editWebAnnotation?.(${comment.pinIndex})`);
+    return;
+  }
+  // 没有锚点的评论无标记可定位，不弹编辑器
+  if (!comment.messageId) return;
   const marker = document.querySelector<HTMLElement>(
     `[data-comment-id="${CSS.escape(id)}"]`,
   );
@@ -720,6 +874,27 @@ function editInputComment(id: string) {
     endOffset: comment.endOffset,
   };
   void nextTick(() => updateCommentEditorPosition(viewport));
+}
+
+/** 在当前可见的网页 webview 里执行脚本（用于定位/移除页面批注标记） */
+function runInActiveWebview(script: string): Promise<unknown> {
+  const views = [...document.querySelectorAll("webview")];
+  const active =
+    views.find((view) => view.getClientRects().length > 0) ?? views.at(-1);
+  const view = active as
+    | (typeof active & {
+        executeJavaScript?: (
+          code: string,
+          userGesture?: boolean,
+        ) => Promise<unknown>;
+      })
+    | undefined;
+  return view?.executeJavaScript?.(script, true) ?? Promise.resolve(undefined);
+}
+
+/** 删除输入框里的网页批注时，同步移除页面上的标记 pin */
+function removePagePin(pinIndex: number) {
+  void runInActiveWebview(`window.removeWebAnnotation?.(${pinIndex})`);
 }
 
 function viewportPosition(
@@ -807,8 +982,7 @@ function updateSelectionMenuPosition(viewport: HTMLElement) {
   const viewportRect = viewport.getBoundingClientRect();
   const spaceBelow = viewportRect.bottom - rect.bottom;
   const spaceAbove = rect.top - viewportRect.top;
-  const showAbove =
-    spaceBelow < menuHeight + 8 && spaceAbove >= menuHeight + 8;
+  const showAbove = spaceBelow < menuHeight + 8 && spaceAbove >= menuHeight + 8;
   const top = showAbove ? rect.top - menuHeight - 8 : rect.bottom + 8;
   const position = viewportPosition(rect, viewport, top, menuWidth);
   menu.x = position.x;
@@ -925,7 +1099,7 @@ async function submitEdit(message: SessionMessage) {
     return;
 
   const current = sessionQuery.data.value;
-  const comments = data.comments.map((comment) => ({ ...comment }));
+  const comments = commentPayload();
   const assistantMessageId = crypto.randomUUID();
   const editedUserMessage = {
     ...message,
@@ -1056,7 +1230,9 @@ function updateStreamMessage(
             message.content.length,
             event.args,
           );
-          const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
+          const toolCall = toolCalls.find(
+            (call) => call.id === event.toolCallId,
+          );
           return {
             ...next,
             toolCalls,
@@ -1097,7 +1273,9 @@ function updateStreamMessage(
             mergeToolProgress(existing?.output, event.output),
             message.content.length,
           );
-          const toolCall = toolCalls.find((call) => call.id === event.toolCallId);
+          const toolCall = toolCalls.find(
+            (call) => call.id === event.toolCallId,
+          );
           return {
             ...next,
             toolCalls,
@@ -1136,10 +1314,14 @@ function updateStreamMessage(
 /** Pi sends tool progress as a trim/append patch; keep the UI value textual. */
 function mergeToolProgress(previous: unknown, patch: unknown): string {
   if (typeof patch === "string") return patch;
-  if (!patch || typeof patch !== "object") return typeof previous === "string" ? previous : "";
+  if (!patch || typeof patch !== "object")
+    return typeof previous === "string" ? previous : "";
   if ("set" in patch && typeof patch.set === "string") return patch.set;
   if ("append" in patch && typeof patch.append === "string") {
-    const trimStart = "trimStart" in patch && typeof patch.trimStart === "number" ? patch.trimStart : 0;
+    const trimStart =
+      "trimStart" in patch && typeof patch.trimStart === "number"
+        ? patch.trimStart
+        : 0;
     const base = typeof previous === "string" ? previous.slice(trimStart) : "";
     return `${base}${patch.append}`;
   }
@@ -1220,11 +1402,19 @@ function updateToolCall(
 ): ResponseToolCall[] {
   const existing = toolCalls.find((toolCall) => toolCall.id === id);
   if (!existing) {
-    return [...toolCalls, { id, toolName, status, output, contentOffset, input }];
+    return [
+      ...toolCalls,
+      { id, toolName, status, output, contentOffset, input },
+    ];
   }
   return toolCalls.map((toolCall) =>
     toolCall.id === id
-      ? { ...toolCall, status, output, ...(input === undefined ? {} : { input }) }
+      ? {
+          ...toolCall,
+          status,
+          output,
+          ...(input === undefined ? {} : { input }),
+        }
       : toolCall,
   );
 }
@@ -1244,7 +1434,10 @@ function toolResultFromEntry(entry: unknown): unknown {
   const text = Array.isArray(content)
     ? content
         .map((part) =>
-          part && typeof part === "object" && "type" in part && part.type === "text"
+          part &&
+          typeof part === "object" &&
+          "type" in part &&
+          part.type === "text"
             ? String((part as { text?: unknown }).text ?? "")
             : "",
         )

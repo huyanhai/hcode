@@ -55,6 +55,10 @@ export class MessageCommentDto {
   @IsOptional()
   @IsInt()
   endOffset?: number;
+
+  @IsOptional()
+  @IsString()
+  attachmentId?: string;
 }
 
 export class CreateSessionDto {
@@ -160,6 +164,7 @@ export type MessageComment = {
   messageId?: string;
   startOffset?: number;
   endOffset?: number;
+  attachmentId?: string;
 };
 
 export type MessageStreamStatus =

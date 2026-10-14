@@ -1,32 +1,27 @@
 <template>
-  <Top
-    class="w-full z-30 pr-2 absolute my-2"
-    v-model:left="showLeft"
-    v-model:right="browserOpen"
-    v-model:bottom="showBottom"
-  />
   <Layout
     v-model:left="showLeft"
-    v-model:right="browserOpen"
+    v-model:right="showRight"
     v-model:bottom="showBottom"
   >
-    <template #left><Left /></template>
-    <template #middle><Middle /></template>
-    <template #right><Right /></template>
+    <template #left><Left v-model="showLeft" /></template>
+    <template #middle>
+      <Middle v-model:right="showRight" v-model:left="showLeft" />
+    </template>
+    <template #right><Right v-model="showRight" /></template>
     <template #bottom><Bottom /></template>
   </Layout>
 </template>
 <script lang="ts" setup>
 defineOptions({ name: "HomeView" });
 import Layout from "@/components/layout/index.vue";
-import Top from "./components/top/index.vue";
 import Left from "./components/left/index.vue";
 import Middle from "./components/middle/index.vue";
 import Right from "./components/right/index.vue";
 import Bottom from "./components/bottom/index.vue";
 
 const showLeft = ref(true);
-const browserOpen = ref(false);
+const showRight = ref(true);
 const showBottom = ref(false);
 //#region Props
 //#endregion

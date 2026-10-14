@@ -1,5 +1,5 @@
 <template>
-  <div class="drag-area" aria-hidden="true" />
+  <div class="drag-area h-12" aria-hidden="true" />
 </template>
 <script lang="ts" setup>
 //#region Props

@@ -14,7 +14,10 @@
     >
       <slot name="left" />
     </ResizablePanel>
-    <ResizableHandle @dragging="isBusy = $event" />
+    <ResizableHandle
+      class="mt-20 mb-10 opacity-0"
+      @dragging="isBusy = $event"
+    />
     <ResizablePanel
       id="layout-middle"
       :order="1"
@@ -24,7 +27,10 @@
     >
       <slot name="middle" />
     </ResizablePanel>
-    <ResizableHandle @dragging="isBusy = $event" />
+    <ResizableHandle
+      class="mt-20 mb-2"
+      @dragging="isBusy = $event"
+    />
     <ResizablePanel
       id="layout-right"
       :order="2"
@@ -64,8 +70,25 @@ const rightDefaultSize = ref(36);
 const leftPanelRef = useTemplateRef("leftPanelRef");
 const middlePanelRef = useTemplateRef<typeof ResizablePanel>("middlePanelRef");
 const rightPanelRef = useTemplateRef<typeof ResizablePanel>("rightPanelRef");
+
+/**
+ * reka Splitter 在完成首次布局测量之前，collapse/expand/resize 等命令式调用会
+ * assert 抛错（"Panel size not found"）。该错误若发生在 Vue 的 mounted 钩子
+ * flush 阶段会中断 post-flush 队列，导致整个应用后续挂载的弹层组件
+ * （HoverCard / DropdownMenu 等 reka Portal）永远不渲染。
+ * 这里统一兜底：捕获错误并在下一帧重试，直到 splitter 完成测量。
+ */
+function guardSplitter(action: () => void, retries = 10): void {
+  try {
+    action();
+  } catch {
+    if (retries > 0)
+      requestAnimationFrame(() => guardSplitter(action, retries - 1));
+  }
+}
+
 onMounted(() => {
-  if (!right.value) rightPanelRef.value?.collapse();
+  if (!right.value) guardSplitter(() => rightPanelRef.value?.collapse());
 });
 //#region Props
 //#endregion
@@ -80,7 +103,11 @@ watch(
   () => left.value,
   () => {
     if (isBusy.value) return;
-    left.value ? leftPanelRef.value?.expand() : leftPanelRef.value?.collapse();
+    guardSplitter(() =>
+      left.value
+        ? leftPanelRef.value?.expand()
+        : leftPanelRef.value?.collapse(),
+    );
   },
 );
 
@@ -89,14 +116,14 @@ watch(
   async () => {
     if (isBusy.value) return;
     if (!right.value) {
-      rightPanelRef.value?.collapse();
+      guardSplitter(() => rightPanelRef.value?.collapse());
       return;
     }
-    rightPanelRef.value?.expand();
+    guardSplitter(() => rightPanelRef.value?.expand());
     await nextTick();
     // Right 面板动态挂载后若把中间面板挤扁，这里兜底恢复到最小可用宽度
     const middle = middlePanelRef.value;
-    if (middle && middle.getSize() < 30) middle.resize(30);
+    if (middle && middle.getSize() < 30) guardSplitter(() => middle.resize(30));
   },
 );
 //#endregion
@@ -106,7 +133,7 @@ watch(
 function collapsedLeft(size: number) {
   if (size < 20) {
     left.value = false;
-    leftPanelRef.value?.collapse();
+    guardSplitter(() => leftPanelRef.value?.collapse());
   } else {
     left.value = true;
   }
@@ -115,7 +142,7 @@ function collapsedLeft(size: number) {
 function collapsedRight(size: number) {
   if (size < 20) {
     right.value = false;
-    rightPanelRef.value?.collapse();
+    guardSplitter(() => rightPanelRef.value?.collapse());
   } else {
     right.value = true;
   }
@@ -124,7 +151,7 @@ function collapsedRight(size: number) {
 function collapsedBottom(size: number) {
   if (size < 20) {
     bottom.value = false;
-    leftPanelRef.value?.collapse();
+    guardSplitter(() => leftPanelRef.value?.collapse());
   }
 }
 

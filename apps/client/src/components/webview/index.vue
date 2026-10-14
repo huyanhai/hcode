@@ -1,6 +1,6 @@
 <template>
-  <div class="w-full h-full mt-5 flex flex-col">
-    <div class="flex bg-background p-2 items-center gap-1 shrink-0">
+  <div class="w-full h-full flex flex-col">
+    <div class="flex bg-background p-2 items-center gap-1 shrink-0 border-b">
       <div class="flex gap-1">
         <div class="flex items-center gap-1 border rounded-full h-8 px-0.5">
           <Button
@@ -32,6 +32,7 @@
           </Button>
         </div>
         <Button
+          v-if="isDesktop"
           size="icon-sm"
           :variant="annotating ? 'default' : 'outline'"
           class="rounded-full"
@@ -54,7 +55,7 @@
         />
       </div>
       <Button
-        v-if="isDev"
+        v-if="isDev && isDesktop"
         size="icon-sm"
         variant="ghost"
         class="rounded-full shrink-0"
@@ -73,7 +74,7 @@
         @did-navigate="onNavigated"
         @did-navigate-in-page="onNavigated"
         @did-start-loading="onStartLoading"
-        @did-stop-loading="syncNavState"
+        @did-stop-loading="onStoppedLoading"
         @did-fail-load="onDidFailLoad"
       ></webview>
       <div
@@ -91,6 +92,7 @@
   </div>
 </template>
 <script lang="ts" setup>
+import { computed } from "vue";
 import { Button } from "../ui/button";
 import {
   ArrowLeft,
@@ -121,18 +123,43 @@ interface WebviewElement extends HTMLElement {
   canGoBack: () => boolean;
   canGoForward: () => boolean;
   getURL: () => string;
+  /** guest 渲染进程的 webContentsId，用于主进程截图 */
+  getWebContentsId: () => number;
   executeJavaScript: (code: string, userGesture?: boolean) => Promise<unknown>;
-  capturePage: () => Promise<{ toPNG: () => Uint8Array }>;
   openDevTools: () => void;
   closeDevTools: () => void;
   isDevToolsOpened: () => boolean;
 }
 
+//#region Props
+const props = withDefaults(
+  defineProps<{
+    /** 初始地址；宿主后续改这个值，组件会跟着跳转 */
+    url?: string;
+    /** 该实例的身份标识（通常是所属 tab），会附在事件里便于溯源 */
+    tabId?: string;
+  }>(),
+  { url: DEFAULT_URL, tabId: "" },
+);
+//#endregion
+//#region Emits
+const emit = defineEmits<{
+  /** 地址变化（用户回车 / 页面内跳转后） */
+  "url-change": [url: string];
+  /** 主框架加载失败 */
+  "load-failed": [info: { code: number; desc: string; url: string }];
+  /** 网页批注已经提交到会话，宿主可据此联动 */
+  "annotation-submitted": [sessionId: string];
+  /** 通用通道：页面侧新增的 ipc 消息统一从这里出去，宿主不必为每种事件都改组件 */
+  action: [payload: { type: string; data?: unknown; tabId?: string }];
+}>();
+//#endregion
+
 const webviewRef = useTemplateRef<WebviewElement>("webviewRef");
 /** 地址栏内容（用户可编辑） */
-const href = ref(DEFAULT_URL);
+const href = ref(props.url);
 /** 真正交给 webview 的地址（只由校验通过的地址写入） */
-const src = ref(DEFAULT_URL);
+const src = ref(props.url);
 const error = ref("");
 /** 主框架加载失败信息；加载中或成功时为 null */
 const loadFailed = ref<{ code: number; desc: string; url: string } | null>(
@@ -145,11 +172,11 @@ const annotating = ref(false);
 const selectedSessionId = useSessionSelection();
 const annotations = useWebAnnotationStore();
 const isDev = import.meta.env.DEV;
+/** 仅 Electron 桌面端展示 webview 专属功能（审查、DevTools）；浏览器里 <webview>/桥不存在 */
+const isDesktop = computed(() => Boolean(window.desktop));
 let annotationSessionId: string | null = null;
-//#region Props
-//#endregion
-//#region Emits
-//#endregion
+/** 已上报给宿主的地址；初始地址是宿主自己给的，不上报，避免挂载时无意义地刷一遍事件 */
+let reportedUrl = props.url;
 //#region Hooks
 onMounted(() => {
   void nextTick(() => {
@@ -169,6 +196,21 @@ watch(src, () => {
   error.value = "";
   void nextTick(syncNavState);
 });
+
+// 宿主改传参（例如从别的 tab / 会话跳过来）时跟着跳；非法地址静默忽略，不打扰用户
+watch(
+  () => props.url,
+  (next) => {
+    if (!next || next === src.value) return;
+    try {
+      const target = normalizeUrl(next);
+      href.value = target;
+      src.value = target;
+    } catch {
+      // 传参非法，保持当前页面
+    }
+  },
+);
 //#endregion
 //#region Event
 function onEnter(event: KeyboardEvent) {
@@ -210,6 +252,14 @@ function submitUrl() {
     return;
   }
   src.value = next;
+  reportUrlChange(next);
+}
+
+/** 地址变化去重后上报宿主，避免 did-stop-loading 反复触发同一个事件 */
+function reportUrlChange(url: string) {
+  if (!url || url === reportedUrl) return;
+  reportedUrl = url;
+  emit("url-change", url);
 }
 
 function syncNavState() {
@@ -232,9 +282,17 @@ function onStartLoading() {
   if (annotating.value) void cancelPageAnnotation();
 }
 
+/** 页面内跳转 / 前进后退：此时 getURL() 已经是新地址，同步并上报 */
 function onNavigated() {
   syncNavState();
+  reportUrlChange(href.value);
   if (annotating.value) void cancelPageAnnotation();
+}
+
+/** 加载收尾（含重定向）：再同步一次并上报最终地址，reportUrlChange 内部会去重 */
+function onStoppedLoading() {
+  syncNavState();
+  reportUrlChange(href.value);
 }
 
 async function cancelPageAnnotation() {
@@ -282,7 +340,15 @@ function onWebviewIpcMessage(event: Event) {
     return;
   }
   // 页面侧 preload 桥：ipcRenderer.sendToHost("inspect-confirmed", selection)
-  if (message.channel !== "inspect-confirmed") return;
+  if (message.channel !== "inspect-confirmed") {
+    // 其他消息统一走 action 通道，宿主按 type 分发，组件不用跟着改
+    emit("action", {
+      type: message.channel ?? "unknown",
+      data: message.args?.[0],
+      tabId: props.tabId || undefined,
+    });
+    return;
+  }
   const selection = message.args?.[0];
   if (!isPageAnnotationSelection(selection)) {
     toast.error("网页批注数据无效");
@@ -306,18 +372,26 @@ function isPageAnnotationSelection(
 
 /** 截图 + 组装批注，交给消息区消费（上传附件并提交到会话） */
 async function handleAnnotationConfirmed(selection: PageAnnotationSelection) {
+  // 页面在确认后保留了批注边框与 marker，先截图再让页面清除边框。
+  // 截图必须在主进程做：<webview>.capturePage() 会让宿主渲染进程崩溃。
+  let screenshotPngBase64 = "";
+  try {
+    const guestId = webviewRef.value?.getWebContentsId?.();
+    if (guestId) {
+      screenshotPngBase64 =
+        (await window.desktop?.captureWebview(guestId).catch(() => "")) ?? "";
+    }
+  } catch {
+    // 截图失败不阻塞批注提交
+  }
+  await runScriptInWebview("window.releaseAnnotationHighlight?.()").catch(
+    () => undefined,
+  );
+
   const sessionId = annotationSessionId ?? selectedSessionId.value;
   if (!sessionId) {
     toast.error("请先选择会话再提交网页批注");
     return;
-  }
-
-  let screenshotPngBase64 = "";
-  try {
-    const image = await webviewRef.value?.capturePage();
-    if (image) screenshotPngBase64 = bytesToBase64(image.toPNG());
-  } catch {
-    // 截图失败不阻塞批注提交
   }
 
   annotations.enqueue(sessionId, {
@@ -326,11 +400,14 @@ async function handleAnnotationConfirmed(selection: PageAnnotationSelection) {
       anchor: selection.anchor,
       comment: selection.comment,
       styles: selection.styles,
+      pinIndex: selection.pinIndex,
       createdAt: new Date().toISOString(),
     },
     screenshotPngBase64,
   });
   if (!screenshotPngBase64) toast.warning("批注截图获取失败，将只提交描述信息");
+  // 通知宿主：这个 webview 刚往会话里塞了一条批注
+  emit("annotation-submitted", sessionId);
 }
 
 function createAnnotationId(): string {
@@ -338,18 +415,6 @@ function createAnnotationId(): string {
     globalThis.crypto?.randomUUID?.() ??
     `wa-${Date.now()}-${Math.random().toString(16).slice(2)}`
   );
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  if (!bytes.length) return "";
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(offset, offset + chunkSize),
-    );
-  }
-  return btoa(binary);
 }
 
 /** 主框架加载失败时给出可见的错误页，避免只有一块空白 */
@@ -366,6 +431,7 @@ function onDidFailLoad(event: {
     desc: event.errorDescription,
     url: event.validatedURL,
   };
+  emit("load-failed", { ...loadFailed.value });
 }
 
 function goBack() {
@@ -406,7 +472,20 @@ function toggleDevTools() {
     toast.error("调试窗口仅在 Electron 客户端中可用");
   }
 }
+/** 宿主指定地址跳转（走地址栏同一套校验，非法地址会提示） */
+function navigate(url: string) {
+  href.value = url;
+  submitUrl();
+}
 //#endregion
 //#region Expose
+/** 暴露给宿主（tab 层）的方法，可对某一个 tab 定向操作 */
+defineExpose({
+  navigate,
+  reload,
+  goBack,
+  goForward,
+  getWebContentsId: () => webviewRef.value?.getWebContentsId?.(),
+});
 //#endregion
 </script>

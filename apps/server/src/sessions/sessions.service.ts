@@ -202,6 +202,7 @@ export class SessionsService implements OnModuleInit, OnModuleDestroy {
       ...(Number.isInteger(item.endOffset)
         ? { endOffset: item.endOffset }
         : {}),
+      ...(item.attachmentId ? { attachmentId: item.attachmentId } : {}),
     }));
     if (!content && !attachments.length && !comments.length)
       throw new BadRequestException('消息内容或附件不能为空');

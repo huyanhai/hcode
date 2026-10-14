@@ -91,6 +91,8 @@ export type MessageComment = {
   messageId?: string;
   startOffset?: number;
   endOffset?: number;
+  /** 关联的截图附件 id */
+  attachmentId?: string;
 };
 
 export type SessionDetail = {
