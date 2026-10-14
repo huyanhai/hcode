@@ -42,8 +42,14 @@
         </Button>
       </div>
       <div class="flex-1">
+        <!--
+          未聚焦时只显示「二级域名.主域名」并居中（不带协议，聚焦才显示完整网址）；
+          聚焦后编辑的仍是完整 href，回车提交/失焦回退逻辑不变
+        -->
         <Input
-          v-model="href"
+          :model-value="editingAddress ? href : displayHref"
+          @update:model-value="onAddressInput"
+          :class="editingAddress ? 'text-left' : 'text-center'"
           class="rounded-full h-8"
           placeholder="输入网址"
           spellcheck="false"
@@ -69,6 +75,7 @@
         ref="webviewRef"
         :src="src"
         class="w-full h-full"
+        allowpopups
         @dom-ready="syncNavState"
         @did-finish-load="onDidFinishLoad"
         @did-navigate="onNavigated"
@@ -195,7 +202,7 @@ onMounted(() => {
   });
   // 订阅主进程转发的"网页内新开标签"；只有 senderId 等于自己 guest id 的才处理
   disposeNewWindowListener =
-    window.desktop?.onWebviewNewWindow(({ senderId, url }) => {
+    window.desktop?.onWebviewNewWindow?.(({ senderId, url }) => {
       if (senderId !== webviewRef.value?.getWebContentsId?.()) return;
       emit("new-tab", url);
     }) ?? undefined;
@@ -208,6 +215,14 @@ onBeforeUnmount(() => {
 });
 //#endregion
 //#region Computed
+/** 地址栏展示值：未聚焦只显示 host（含二级域名，不带协议与路径） */
+const displayHref = computed(() => {
+  try {
+    return new URL(href.value).host || href.value;
+  } catch {
+    return href.value;
+  }
+});
 //#endregion
 //#region Watch
 watch(src, () => {
@@ -231,6 +246,11 @@ watch(
 );
 //#endregion
 //#region Event
+/** 地址栏输入（聚焦时编辑的是完整网址） */
+function onAddressInput(value: string | number) {
+  href.value = String(value);
+}
+
 function onEnter(event: KeyboardEvent) {
   // 中文输入法正在拼字时，回车只用于选词，不跳转
   if (event.isComposing || event.keyCode === 229) return;
