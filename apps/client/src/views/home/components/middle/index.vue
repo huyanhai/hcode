@@ -16,8 +16,8 @@
     <div
       :class="
         cn(
-          'relative bg-background border border-r-0 rounded-tl-2xl rounded-bl-2xl text-foreground flex-auto h-1/2',
-          !showRight && 'rounded-br-2xl rounded-tr-2xl border-r mr-2',
+          'relative bg-background border rounded-tl-2xl rounded-bl-2xl text-foreground flex-auto h-1/2',
+          !showRight && 'rounded-br-2xl rounded-tr-2xl mr-2',
           !showLeft && 'ml-2',
         )
       "

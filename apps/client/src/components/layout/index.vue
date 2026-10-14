@@ -28,7 +28,7 @@
       <slot name="middle" />
     </ResizablePanel>
     <ResizableHandle
-      class="mt-20 mb-2"
+      class="mt-20 mb-2 opacity-0"
       @dragging="isBusy = $event"
     />
     <ResizablePanel

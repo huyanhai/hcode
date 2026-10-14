@@ -15,7 +15,17 @@
     @apply opacity-50 hover:opacity-100!;
   }
 
+  /*
+    no-drag 的语义是「从窗口拖拽热区里挖掉自己」，但 Chromium 的
+    -webkit-app-region 按绘制顺序计算（drag 取并集、no-drag 只对绘制在
+    drag 之后的元素生效）。App.vue 的 DragArea 是 fixed z-20 的全宽热区，
+    所以 no-drag 元素必须抬到它之上（z-30）才能真正生效，否则按钮可
+    视觉上可见却点不了。relative 对布局无影响，已有定位的工具类
+    （Tailwind utilities 层）优先级更高，不会被这里覆盖。
+  */
   .no-drag {
+    position: relative;
+    z-index: 30;
     -webkit-app-region: no-drag;
   }
 
