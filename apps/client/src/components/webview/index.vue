@@ -76,6 +76,8 @@
         @did-start-loading="onStartLoading"
         @did-stop-loading="onStoppedLoading"
         @did-fail-load="onDidFailLoad"
+        @page-title-updated="onPageTitleUpdated"
+        @page-favicon-updated="onPageFaviconUpdated"
       ></webview>
       <div
         v-if="loadFailed"
@@ -146,6 +148,12 @@ const props = withDefaults(
 const emit = defineEmits<{
   /** 地址变化（用户回车 / 页面内跳转后） */
   "url-change": [url: string];
+  /** 页面标题变化（网页 title，用于更新 tab 标签） */
+  "title-change": [title: string];
+  /** 页面 favicon 变化（图标地址列表，通常取第一个更新 tab 图标） */
+  "favicon-change": [favicons: string[]];
+  /** 网页内新开标签（target="_blank"），宿主可据此新开 tab */
+  "new-tab": [url: string];
   /** 主框架加载失败 */
   "load-failed": [info: { code: number; desc: string; url: string }];
   /** 网页批注已经提交到会话，宿主可据此联动 */
@@ -175,6 +183,8 @@ const isDev = import.meta.env.DEV;
 /** 仅 Electron 桌面端展示 webview 专属功能（审查、DevTools）；浏览器里 <webview>/桥不存在 */
 const isDesktop = computed(() => Boolean(window.desktop));
 let annotationSessionId: string | null = null;
+/** 主进程"新开标签"广播的取消订阅函数 */
+let disposeNewWindowListener: (() => void) | undefined;
 /** 已上报给宿主的地址；初始地址是宿主自己给的，不上报，避免挂载时无意义地刷一遍事件 */
 let reportedUrl = props.url;
 //#region Hooks
@@ -183,9 +193,17 @@ onMounted(() => {
     syncNavState();
     registerIpc(webviewRef.value!, onWebviewIpcMessage);
   });
+  // 订阅主进程转发的"网页内新开标签"；只有 senderId 等于自己 guest id 的才处理
+  disposeNewWindowListener =
+    window.desktop?.onWebviewNewWindow(({ senderId, url }) => {
+      if (senderId !== webviewRef.value?.getWebContentsId?.()) return;
+      emit("new-tab", url);
+    }) ?? undefined;
 });
 onBeforeUnmount(() => {
   unregisterIpc(webviewRef.value!, onWebviewIpcMessage);
+  disposeNewWindowListener?.();
+  disposeNewWindowListener = undefined;
   void cancelPageAnnotation();
 });
 //#endregion
@@ -431,6 +449,15 @@ function createAnnotationId(): string {
     globalThis.crypto?.randomUUID?.() ??
     `wa-${Date.now()}-${Math.random().toString(16).slice(2)}`
   );
+}
+
+/** 页面标题 / favicon 更新：透传给宿主更新 tab 标签与图标 */
+function onPageTitleUpdated(event: { title: string }) {
+  if (event.title) emit("title-change", event.title);
+}
+
+function onPageFaviconUpdated(event: { favicons: string[] }) {
+  if (event.favicons?.length) emit("favicon-change", event.favicons);
 }
 
 /** 主框架加载失败时给出可见的错误页，避免只有一块空白 */

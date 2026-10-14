@@ -27,6 +27,7 @@ import Webview from "@/components/webview/index.vue";
 import Tabs from "@/components/tabs/index.vue";
 import type { TTabItem } from "@/components/tabs/types.js";
 import { Webcam } from "@lucide/vue";
+import { h } from "vue";
 import { toast } from "vue-sonner";
 import ChangeTabBtn from "../change-tab-btn/index.vue";
 
@@ -70,6 +71,44 @@ function onUrlChange(value: TTabItem["value"], url: string) {
   }
 }
 
+/** 网页 title 加载完成 → tab 标签换成页面标题 */
+function onTitleChange(value: TTabItem["value"], title: string) {
+  const tab = findTab(value);
+  if (tab && title.trim()) tab.label = title.trim();
+}
+
+/** 网页 favicon 加载完成 → tab 图标换成站点图标（取不到就保留默认图标） */
+function onFaviconChange(value: TTabItem["value"], favicons: string[]) {
+  const tab = findTab(value);
+  if (!tab) return;
+  const src = favicons.find((item) => /^https?:\/\//.test(item));
+  if (!src) return;
+  // 函数式组件渲染 <img>，替换掉默认的 Webcam 图标；
+  // 部分站点图标需要 Cookie/Referer 才能访问，加载失败时回退默认图标，避免出现裂图
+  tab.icon = () =>
+    h("img", {
+      src,
+      alt: "",
+      class: "size-4 rounded-sm flex-none object-contain",
+      onError: () => {
+        tab.icon = Webcam;
+      },
+    });
+}
+
+/** 网页内新开标签（target="_blank"）→ 新开一个 tab 展示并激活 */
+function onNewTab(_value: TTabItem["value"], url: string) {
+  let label = url;
+  try {
+    label = new URL(url).hostname.replace(/^www\./, "") || url;
+  } catch {
+    // 非法地址保持原样
+  }
+  const tab = createTab(label, url);
+  tabsConfig.value.push(tab);
+  activeTab.value = tab.value;
+}
+
 /** 主框架加载失败 → 提示一下，失败详情由 Webview 自己展示 */
 function onLoadFailed(
   value: TTabItem["value"],
@@ -110,6 +149,10 @@ function createTab(label: string, url = DEFAULT_URL): TTabItem {
     props: { url, tabId: value },
     on: {
       "url-change": (next: string) => onUrlChange(value, next),
+      "title-change": (title: string) => onTitleChange(value, title),
+      "favicon-change": (favicons: string[]) =>
+        onFaviconChange(value, favicons),
+      "new-tab": (url: string) => onNewTab(value, url),
       "load-failed": (info: { code: number; desc: string; url: string }) =>
         onLoadFailed(value, info),
       "annotation-submitted": () => onAnnotationSubmitted(value),

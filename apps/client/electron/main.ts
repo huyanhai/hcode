@@ -46,13 +46,16 @@ function toggleWebviewDevTools(contents: Electron.WebContents): void {
   contents.openDevTools({ mode: "detach" });
 }
 
-// <webview> 里 target="_blank" / window.open 的链接默认会被静默丢弃，
-// 这里改成在当前 webview 内直接加载
+// <webview> 里 target="_blank" / window.open 的链接：
+// 交给宿主渲染进程的 tab 系统新开一个 tab 展示（带 senderId 供宿主定位来源 tab）
 app.on("web-contents-created", (_event, contents) => {
   if (contents.getType() !== "webview") return;
   contents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) {
-      void contents.loadURL(url).catch(() => undefined);
+      contents.hostWebContents?.send("webview:new-window", {
+        senderId: contents.id,
+        url,
+      });
     }
     return { action: "deny" };
   });
