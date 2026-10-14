@@ -60,6 +60,7 @@ export type AnnotationWindow = Window & {
   /** 宿主 webview-preload 注入的桥（contextBridge 暴露） */
   inspectConfirmed?: {
     inspectConfirmed?: (selection: PageAnnotationSelection) => void;
+    annotationExited?: () => void;
   };
   inspect?: () => void;
   destroy?: () => void;

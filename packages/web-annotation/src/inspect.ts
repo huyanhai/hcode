@@ -35,7 +35,7 @@ export function selectPageElement() {
     pointerEvents: "none",
     zIndex: "2147483647",
     "border-bottom-left-radius": "4px",
-    border: "1px solid #fff",
+    border: "2px solid #fff",
   });
   document.documentElement.append(hoverMarker);
 
@@ -73,6 +73,8 @@ export function selectPageElement() {
   let annotation = false;
 
   let annotationInstance: HAnnotation | null = null;
+  /** 批注编辑中的目标元素：高亮边框锚定在它上面，直到确认/取消才清除 */
+  let annotationTarget: HTMLElement | null = null;
 
   function choose(point: { x: number; y: number }): HTMLElement | null {
     let element = document.elementFromPoint(point.x, point.y);
@@ -109,7 +111,8 @@ export function selectPageElement() {
   function move(event: PointerEvent): void {
     const element = choose({ x: event.clientX, y: event.clientY });
     if (!element || annotation || isAnnotationEvent(event)) {
-      highlight.style.display = "none";
+      // 批注编辑期间高亮边框锚定在选中元素上，不随 hover 移动或隐藏
+      if (!annotation) highlight.style.display = "none";
       hoverMarker.style.display = "none";
       return;
     }
@@ -136,9 +139,24 @@ export function selectPageElement() {
       );
   }
 
+  /** 把高亮边框对齐到批注目标元素当前位置（滚动/缩放时跟随） */
+  function syncAnnotationHighlight(): void {
+    if (!annotation || !annotationTarget) return;
+    const rect = annotationTarget.getBoundingClientRect();
+    Object.assign(highlight.style, {
+      display: "block",
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+    });
+  }
+
   function finishAnnotation(): void {
     annotation = false;
     annotationInstance = null;
+    annotationTarget = null;
+    highlight.style.display = "none";
     if (inspecting) hideNativeCursor();
   }
 
@@ -161,9 +179,10 @@ export function selectPageElement() {
     if (!element) return;
     if (annotation) return;
     annotation = true;
-    highlight.style.display = "none";
+    annotationTarget = element;
     hoverMarker.style.display = "none";
     restoreNativeCursor();
+    syncAnnotationHighlight();
     const anchor = getSelectedElement(element);
     const markerOffset = {
       x: event.clientX - anchor.rect.x,
@@ -188,6 +207,12 @@ export function selectPageElement() {
     });
   }
 
+  /** 通知宿主：页面侧已自行退出审查（如按 Esc），宿主同步按钮状态 */
+  function notifyHostExited(): void {
+    const bridge = page.inspectorBridge ?? page.inspectConfirmed;
+    bridge?.annotationExited?.();
+  }
+
   function keydown(event: KeyboardEvent): void {
     if (event.key !== "Escape" || !inspecting) return;
 
@@ -205,11 +230,14 @@ export function selectPageElement() {
     event.preventDefault();
     event.stopImmediatePropagation();
     stopInspecting();
+    notifyHostExited();
   }
 
   function stopInspecting(): void {
     document.removeEventListener("pointermove", move, true);
     document.removeEventListener("click", click, true);
+    document.removeEventListener("scroll", syncAnnotationHighlight, true);
+    window.removeEventListener("resize", syncAnnotationHighlight);
     window.removeEventListener("keydown", keydown, true);
     highlight.style.display = "none";
     hoverMarker.style.display = "none";
@@ -229,6 +257,8 @@ export function selectPageElement() {
     hideNativeCursor();
     document.addEventListener("pointermove", move, true);
     document.addEventListener("click", click, true);
+    document.addEventListener("scroll", syncAnnotationHighlight, true);
+    window.addEventListener("resize", syncAnnotationHighlight);
     window.addEventListener("keydown", keydown, true);
   }
 
@@ -236,6 +266,7 @@ export function selectPageElement() {
   function destroy(): void {
     inspecting = false;
     annotation = false;
+    annotationTarget = null;
     // 关掉正在编辑的批注卡片（会还原实时预览的样式）
     const composer = annotationInstance;
     annotationInstance = null;

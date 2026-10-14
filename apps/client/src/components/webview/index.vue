@@ -274,8 +274,13 @@ async function toggleAnnotation() {
 
 // 今天消息
 function onWebviewIpcMessage(event: Event) {
-  console.log(event)
   const message = event as Event & { channel?: string; args?: unknown[] };
+  // 页面里按 Esc 自行退出审查，同步工具栏按钮状态
+  if (message.channel === "inspect-exited") {
+    annotating.value = false;
+    annotationSessionId = null;
+    return;
+  }
   // 页面侧 preload 桥：ipcRenderer.sendToHost("inspect-confirmed", selection)
   if (message.channel !== "inspect-confirmed") return;
   const selection = message.args?.[0];
