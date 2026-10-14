@@ -91,6 +91,13 @@ export class HAnnotation extends LitElement {
     this.comment = (event.currentTarget as HTMLTextAreaElement).value;
   };
 
+  /** 输入框内回车：已填写备注时直接确认提交（中文输入法组词回车不触发） */
+  private readonly onInputKeydown = (event: KeyboardEvent): void => {
+    if (event.key !== "Enter" || event.isComposing) return;
+    event.preventDefault();
+    if (this.isReady) this.confirm();
+  };
+
   private readonly onTextInput = (event: Event): void => {
     this.editedText = (event.currentTarget as HTMLInputElement).value;
     this.applyTextPreview();
@@ -311,6 +318,7 @@ export class HAnnotation extends LitElement {
             placeholder="描述这些更改…"
             .value=${this.comment}
             @input=${this.onCommentInput}
+            @keydown=${this.onInputKeydown}
           ></input>
           <button
             class="send ${ready ? "ready" : ""}"

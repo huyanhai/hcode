@@ -121,9 +121,7 @@
           size="icon-sm"
           class="ml-1 button-full shrink-0"
           :disabled="
-            sending
-              ? false
-              : !canSubmit || disabled || hasPendingUpload || hasUploadError
+            sending ? false : !canSubmit || disabled || hasPendingUpload
           "
           :aria-label="sending ? '停止生成' : '发送消息'"
           @click="sending ? emit('stop') : undefined"
@@ -133,6 +131,8 @@
             class="fill-current"
             style="transform: scale(0.8)"
           />
+          <!-- 附件上传中：图标切换为旋转 loading，与禁用状态呼应 -->
+          <LoaderCircle v-else-if="hasPendingUpload" class="animate-spin" />
           <ArrowUp v-else />
         </InputGroupButton>
       </InputGroupAddon>
@@ -145,6 +145,7 @@ import {
   ChevronDown,
   Globe,
   Image as ImageIcon,
+  LoaderCircle,
   Mic,
   Paperclip,
   Plus,
@@ -185,6 +186,8 @@ const selectedModel = computed({
 });
 const modelOptions = computed(() => props.models ?? []);
 const objectUrls = new Set<string>();
+/** 在途上传任务：点发送时要等它们落地，避免附件被静默丢弃 */
+const uploadTasks = new Map<string, Promise<unknown>>();
 
 //#region Props
 //#endregion
@@ -201,14 +204,10 @@ const canSubmit = computed(() =>
       !!modelData.value.content.trim(),
   ),
 );
+/** 上传中：禁止发送避免附件被丢弃；上传失败不禁用（可降级发文字） */
 const hasPendingUpload = computed(() =>
   modelData.value.attachments.some(
     (attachment) => attachment.uploadState === "uploading",
-  ),
-);
-const hasUploadError = computed(() =>
-  modelData.value.attachments.some(
-    (attachment) => attachment.uploadState === "error",
   ),
 );
 /** 被注释引用的截图附件不单独展示，改由注释条目左侧的缩略图呈现 */
@@ -278,7 +277,13 @@ function addFiles(files: File[]) {
     if (attachment.file.type.startsWith("image/")) {
       void createImagePreview(attachment.id, attachment.file);
     }
-    void uploadSelectedAttachment(attachment.id, attachment.file);
+    const task = uploadSelectedAttachment(attachment.id, attachment.file);
+    uploadTasks.set(attachment.id, task);
+    void task.then(() => {
+      if (uploadTasks.get(attachment.id) === task) {
+        uploadTasks.delete(attachment.id);
+      }
+    });
   }
 }
 
@@ -321,6 +326,7 @@ function removeAttachment(id: string) {
     (item) => item.id === id || item.uploaded?.id === id,
   );
   if (!attachment) return;
+  uploadTasks.delete(attachment.id);
   if (attachment.previewUrl && objectUrls.has(attachment.previewUrl)) {
     URL.revokeObjectURL(attachment.previewUrl);
     objectUrls.delete(attachment.previewUrl);
@@ -353,13 +359,7 @@ function selectTool(tool: "image" | "research" | "web-search") {
 }
 
 function handleSubmit() {
-  if (
-    props.disabled ||
-    !canSubmit.value ||
-    hasPendingUpload.value ||
-    hasUploadError.value
-  )
-    return;
+  if (props.disabled || !canSubmit.value || hasPendingUpload.value) return;
   emit("submit");
 
   nextTick(() => {
@@ -382,5 +382,12 @@ onBeforeUnmount(() => {
 });
 //#endregion
 //#region Expose
+/** 等待所有在途附件上传落地（成功或失败都返回），供发送前调用 */
+async function whenUploadsSettle() {
+  while (uploadTasks.size) {
+    await Promise.allSettled([...uploadTasks.values()]);
+  }
+}
+defineExpose({ whenUploadsSettle });
 //#endregion
 </script>

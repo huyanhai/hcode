@@ -219,6 +219,7 @@
         />
         <Input
           v-else
+          ref="inputRef"
           class="mb-4"
           v-model="data"
           :models="modelOptions"
@@ -296,6 +297,10 @@ const data = reactive<SubmitPayload>({
   content: "",
   fullAccess: false,
 });
+
+const inputRef = ref<InstanceType<typeof Input>>();
+/** 批注截图的在途上传任务：点发送时要等它们落地 */
+const annotationUploadTasks = new Set<Promise<unknown>>();
 
 const sending = ref(false);
 const webAnnotations = useWebAnnotationStore();
@@ -492,25 +497,42 @@ async function submit(override?: {
 }) {
   const sessionId = override?.sessionId ?? selectedSessionId.value;
   const content = override?.content.trim() ?? data.content.trim();
-  const attachments =
-    override?.attachments ??
-    data.attachments.flatMap((attachment) =>
-      attachment.uploadState === "uploaded" && attachment.uploaded
-        ? [attachment.uploaded]
-        : [],
-    );
-  if (
-    !sessionId ||
-    (!content && !attachments.length) ||
-    (!override && attachments.length !== data.attachments.length) ||
-    sending.value
-  )
-    return;
+  // 先同步拿到对象引用：等待上传期间输入框会被清空，
+  // 附件/注释对象的上传状态会原地更新，之后按最终状态组装载荷
+  const attachmentItems = override ? [] : [...data.attachments];
+  const commentItems = override ? [] : [...data.comments];
+  if (!sessionId || sending.value) return;
 
   sending.value = true;
   activeSessionId.value = sessionId;
   let assistantMessageId = "";
+  let attachments = override?.attachments ?? [];
+  let comments: ReturnType<typeof commentPayload> = [];
   try {
+    if (!override) {
+      // 等在途上传（附件/批注截图）落地：成功的随消息发出，失败的就地标记 error
+      await Promise.allSettled([
+        inputRef.value?.whenUploadsSettle(),
+        ...annotationUploadTasks,
+      ]);
+      attachments = attachmentItems.flatMap((attachment) =>
+        attachment.uploadState === "uploaded" && attachment.uploaded
+          ? [attachment.uploaded]
+          : [],
+      );
+      const uploadedIds = new Set(
+        attachmentItems.flatMap((attachment) =>
+          attachment.uploadState === "uploaded" && attachment.uploaded
+            ? [attachment.id, attachment.uploaded.id]
+            : [],
+        ),
+      );
+      comments = commentPayload(commentItems, uploadedIds);
+      // 附件全部上传失败且没有文字/注释时无事可发
+      if (!content && !attachments.length && !comments.length) return;
+      // 点了发送：清空网页上的批注标记并退出审查模式
+      void runInActiveWebview("window.clearWebAnnotation?.()");
+    }
     const current = override
       ? queryClient.getQueryData<SessionDetail>(["session", sessionId])
       : sessionQuery.data.value;
@@ -523,7 +545,7 @@ async function submit(override?: {
       role: "user" as const,
       content,
       attachments,
-      comments: override ? [] : commentPayload(),
+      comments,
       sequence: (current?.messages.at(-1)?.sequence ?? 0) + 1,
       createdAt: String(Date.now()),
     };
@@ -552,7 +574,7 @@ async function submit(override?: {
       {
         content,
         attachments,
-        comments: override ? [] : commentPayload(),
+        comments,
         profileId: defaultProfile.value?.id,
         model: data.model || undefined,
         fullAccess: data.fullAccess,
@@ -574,6 +596,7 @@ async function submit(override?: {
         sessionId,
         assistantMessageId,
         stopped ? "stopped" : "failed",
+        stopped ? undefined : error instanceof Error ? error.message : "发送消息失败",
       );
     }
     if (!stopped) {
@@ -656,20 +679,25 @@ async function processWebAnnotations(): Promise<void> {
         (candidate) => candidate.attachmentId === attachmentId,
       );
       if (stored) {
-        try {
-          stored.uploaded = await uploadAttachment(stored.file);
-          stored.uploadState = "uploaded";
-          if (comment) {
-            // 关联 id 换成服务端附件 id，随消息持久化，气泡里靠它找回截图
-            comment.attachmentId = stored.uploaded.id;
-            comment.imageState = "uploaded";
+        // 挂到全局任务集合，点发送时等待在途截图上传落地
+        const task = (async () => {
+          try {
+            stored.uploaded = await uploadAttachment(stored.file);
+            stored.uploadState = "uploaded";
+            if (comment) {
+              // 关联 id 换成服务端附件 id，随消息持久化，气泡里靠它找回截图
+              comment.attachmentId = stored.uploaded.id;
+              comment.imageState = "uploaded";
+            }
+          } catch (cause) {
+            stored.uploadState = "error";
+            stored.uploadError =
+              cause instanceof Error ? cause.message : "附件上传失败";
+            if (comment) comment.imageState = "error";
           }
-        } catch (cause) {
-          stored.uploadState = "error";
-          stored.uploadError =
-            cause instanceof Error ? cause.message : "附件上传失败";
-          if (comment) comment.imageState = "error";
-        }
+        })();
+        annotationUploadTasks.add(task);
+        await task.finally(() => annotationUploadTasks.delete(task));
       }
     }
   } finally {
@@ -712,10 +740,24 @@ function commentsForMessage(messageId: string) {
   return [...byId.values()];
 }
 
-/** 发送给服务端的注释：只保留可持久化字段，本地预览 data URL / 上传状态不上传 */
-function commentPayload() {
-  return data.comments.map(
-    ({ imageUrl: _imageUrl, imageState: _imageState, ...rest }) => rest,
+/** 发送给服务端的注释：只保留可持久化字段，本地预览 data URL / 上传状态不上传；
+ * 传入 uploadedIds 时，截图附件没上传成功的注释会去掉附件引用（文字照发） */
+function commentPayload(
+  comments: SubmitPayload["comments"] = data.comments,
+  uploadedIds?: Set<string>,
+) {
+  return comments.map(
+    ({ imageUrl: _imageUrl, imageState: _imageState, ...rest }) => {
+      if (
+        uploadedIds &&
+        rest.attachmentId &&
+        !uploadedIds.has(rest.attachmentId)
+      ) {
+        const { attachmentId: _attachmentId, ...remainder } = rest;
+        return remainder;
+      }
+      return rest;
+    },
   );
 }
 
@@ -1200,6 +1242,8 @@ function updateStreamMessage(
             ...message,
             streamStatus: "failed",
             reasoning: "",
+            // 把真实失败原因留在气泡里，方便用户看到为什么发送失败
+            content: event.message || message.content,
             completedAt: String(Date.now()),
           };
         }
@@ -1636,6 +1680,7 @@ function updateMessageStatus(
   sessionId: string,
   messageId: string,
   streamStatus: ResponseStreamStatus,
+  errorMessage?: string,
 ) {
   queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
     old
@@ -1647,6 +1692,10 @@ function updateMessageStatus(
                   ...message,
                   streamStatus,
                   reasoning: "",
+                  // 失败原因写进气泡内容，避免只有一闪而过的 toast
+                  ...(streamStatus === "failed" && errorMessage
+                    ? { content: errorMessage }
+                    : {}),
                   completedAt: String(Date.now()),
                 }
               : message,
@@ -1721,7 +1770,12 @@ async function respondToApproval(
     );
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
   } catch (error) {
-    updateMessageStatus(sessionId, messageId, "failed");
+    updateMessageStatus(
+      sessionId,
+      messageId,
+      "failed",
+      error instanceof Error ? error.message : undefined,
+    );
     toast.error(error instanceof Error ? error.message : "处理审批失败");
   } finally {
     abortController = undefined;

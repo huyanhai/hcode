@@ -16,6 +16,8 @@ export type PiComment = {
   endOffset?: number;
   /** 关联的截图附件 id（注释缩略图与附件的关联关系） */
   attachmentId?: string;
+  /** 网页批注在页面内的标记序号（pin），随消息持久化以便重载后定位/删除标记 */
+  pinIndex?: number;
 };
 export type PiProfile = {
   id: string;

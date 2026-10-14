@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  HttpException,
   Injectable,
   NotFoundException,
   OnModuleDestroy,
@@ -109,7 +110,7 @@ export class SessionsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async send(id: string, input: SendMessageDto): Promise<PiDetail> {
-    const submission = await this.submit(id, input);
+    const submission = await this.submitOrRethrow(id, input, '发送消息失败');
     const result = await this.runtime.observe(id, submission, () => {});
     if (!result.text.trim() && !result.awaitingApproval)
       throw new BadGatewayException('模型没有返回内容');
@@ -121,7 +122,7 @@ export class SessionsService implements OnModuleInit, OnModuleDestroy {
     input: SendMessageDto,
     response: ServerResponse,
   ): Promise<void> {
-    const submission = await this.submit(id, input);
+    const submission = await this.submitOrRethrow(id, input, '请求模型失败');
     await this.streamRun(
       response,
       (emit, signal) => this.runtime.observe(id, submission, emit, signal),
@@ -144,7 +145,7 @@ export class SessionsService implements OnModuleInit, OnModuleDestroy {
         throw new BadRequestException(error.message);
       throw error;
     }
-    const submission = await this.submit(id, input);
+    const submission = await this.submitOrRethrow(id, input, '重新生成消息失败');
     await this.streamRun(
       response,
       (emit, signal) => this.runtime.observe(id, submission, emit, signal),
@@ -171,6 +172,26 @@ export class SessionsService implements OnModuleInit, OnModuleDestroy {
       },
       '处理审批失败',
     );
+  }
+
+  /** submit 阶段的异常大多是可读的业务错误（如附件读取失败），
+   *  包成 HttpException 让真实原因到达客户端，而不是 500「系统异常」 */
+  private async submitOrRethrow(
+    id: string,
+    input: SendMessageDto,
+    fallback: string,
+  ) {
+    try {
+      return await this.submit(id, input);
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      console.error('Session submit failed', error);
+      throw new BadGatewayException(
+        error instanceof Error && error.message
+          ? error.message
+          : fallback,
+      );
+    }
   }
 
   private async submit(id: string, input: SendMessageDto) {
@@ -203,6 +224,7 @@ export class SessionsService implements OnModuleInit, OnModuleDestroy {
         ? { endOffset: item.endOffset }
         : {}),
       ...(item.attachmentId ? { attachmentId: item.attachmentId } : {}),
+      ...(Number.isInteger(item.pinIndex) ? { pinIndex: item.pinIndex } : {}),
     }));
     if (!content && !attachments.length && !comments.length)
       throw new BadRequestException('消息内容或附件不能为空');
@@ -264,8 +286,12 @@ export class SessionsService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       console.error('Pi session stream failed', error);
       if (!response.destroyed) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : errorMessage;
         response.write(
-          `data: ${JSON.stringify({ type: 'hcode.error', message: errorMessage })}\n\n`,
+          `data: ${JSON.stringify({ type: 'hcode.error', message })}\n\n`,
         );
         response.end();
       }

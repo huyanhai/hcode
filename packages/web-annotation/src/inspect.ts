@@ -322,6 +322,22 @@ export function selectPageElement() {
   page.inspect = inspect;
   page.destroy = destroy;
   page.releaseAnnotationHighlight = releaseAnnotationHighlight;
+  /** 清除页面上全部批注标记并退出审查模式；宿主在消息发送后调用 */
+  page.clearWebAnnotation = (): void => {
+    for (const el of document.querySelectorAll("h-annotation")) {
+      if (!(el instanceof HAnnotation)) continue;
+      if (el.shadowRoot?.querySelector(".card")) {
+        // 还在编辑中的卡片：走 dismiss 还原实时预览，避免半成品修改残留在页面
+        el.dismiss();
+      } else {
+        // 已确认的标记：样式修改按用户意图保留，直接移除 pin 本身
+        el.remove();
+      }
+    }
+    destroy();
+    // 通知宿主同步工具栏审查按钮状态
+    notifyHostExited();
+  };
   page.editWebAnnotation = (pinIndex: number): boolean => {
     const target = findComposer(pinIndex);
     if (!target) return false;

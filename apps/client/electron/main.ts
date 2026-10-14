@@ -9,6 +9,21 @@ import { join } from "node:path";
 ipcMain.handle("webview:capture", async (_event, webContentsId: number) => {
   const guest = webContents.fromId(Number(webContentsId));
   if (!guest || guest.isDestroyed() || guest.getType() !== "webview") return "";
+  // 不带 rect 的 capturePage() 会截下整个文档（含滚动区外内容）。
+  // capturePage 的 rect 是视口坐标：固定从可视区左上角截 clientWidth×clientHeight，
+  // 与滚动位置无关（此前用 scrollY 当 y，页面滚动后 rect 超出视口会得到空图而回退整页截图）
+  try {
+    const rect = (await guest.executeJavaScript(
+      "({x:0,y:0,width:document.documentElement.clientWidth,height:document.documentElement.clientHeight})",
+      true,
+    )) as { x: number; y: number; width: number; height: number };
+    if (rect && rect.width > 0 && rect.height > 0) {
+      const image = await guest.capturePage(rect);
+      if (image && !image.isEmpty()) return image.toPNG().toString("base64");
+    }
+  } catch {
+    // 测量可视区失败时回退到整页截图
+  }
   const image = await guest.capturePage();
   return image ? image.toPNG().toString("base64") : "";
 });

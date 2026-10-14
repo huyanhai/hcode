@@ -372,6 +372,19 @@ function isPageAnnotationSelection(
 
 /** 截图 + 组装批注，交给消息区消费（上传附件并提交到会话） */
 async function handleAnnotationConfirmed(selection: PageAnnotationSelection) {
+  // 截图前隐藏批注卡片（评论弹窗不应出现在截图里；pin 标记保留），
+  // 截完立即移除样式还原
+  await runScriptInWebview(
+    "(() => {" +
+      "document.getElementById('hcode-capture-suppress')?.remove();" +
+      "const style = document.createElement('style');" +
+      "style.id = 'hcode-capture-suppress';" +
+      "style.textContent = 'h-annotation .card{display:none !important}';" +
+      "document.head.append(style);" +
+    "})()",
+  ).catch(() => undefined);
+  // 等浏览器渲染出一帧再截图，避免截到样式生效前的画面
+  await new Promise((resolve) => setTimeout(resolve, 100));
   // 页面在确认后保留了批注边框与 marker，先截图再让页面清除边框。
   // 截图必须在主进程做：<webview>.capturePage() 会让宿主渲染进程崩溃。
   let screenshotPngBase64 = "";
@@ -384,6 +397,9 @@ async function handleAnnotationConfirmed(selection: PageAnnotationSelection) {
   } catch {
     // 截图失败不阻塞批注提交
   }
+  await runScriptInWebview(
+    "document.getElementById('hcode-capture-suppress')?.remove()",
+  ).catch(() => undefined);
   await runScriptInWebview("window.releaseAnnotationHighlight?.()").catch(
     () => undefined,
   );

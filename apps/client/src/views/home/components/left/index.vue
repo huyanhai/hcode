@@ -137,7 +137,7 @@
         </template>
       </div>
     </div>
-    <Settings class="border-t p-2" />
+    <Settings class="p-2" />
   </div>
   <GlobalDialog
     :title="workspaceDialogMode === 'create' ? '创建项目' : '编辑项目'"

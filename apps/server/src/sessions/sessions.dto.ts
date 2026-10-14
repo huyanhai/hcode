@@ -59,6 +59,11 @@ export class MessageCommentDto {
   @IsOptional()
   @IsString()
   attachmentId?: string;
+
+  /** 网页批注在页面内的标记序号（pin），编辑/删除标记时定位用 */
+  @IsOptional()
+  @IsInt()
+  pinIndex?: number;
 }
 
 export class CreateSessionDto {
@@ -165,6 +170,8 @@ export type MessageComment = {
   startOffset?: number;
   endOffset?: number;
   attachmentId?: string;
+  /** 网页批注的页面内标记序号 */
+  pinIndex?: number;
 };
 
 export type MessageStreamStatus =

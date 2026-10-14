@@ -271,16 +271,11 @@ export class PiRuntime {
     for (const attachment of attachments.filter((item) =>
       item.mimeType.startsWith("image/"),
     )) {
-      if (attachment.size > 25 * 1024 * 1024) throw new Error(`附件过大: ${attachment.name}`);
-      const response = await fetch(attachment.url, { redirect: "error", signal: AbortSignal.timeout(30_000) });
-      if (!response.ok) throw new Error(`无法读取附件: ${attachment.name}`);
-      if (Number(response.headers.get("content-length") ?? 0) > 25 * 1024 * 1024)
-        throw new Error(`附件过大: ${attachment.name}`);
-      const bytes = Buffer.from(await response.arrayBuffer());
-      if (bytes.length > 25 * 1024 * 1024) throw new Error(`附件过大: ${attachment.name}`);
       images.push({
         type: "image",
-        data: bytes.toString("base64"),
+        data: Buffer.from(await this.readImageBytes(attachment)).toString(
+          "base64",
+        ),
         mimeType: attachment.mimeType,
       });
     }
@@ -313,6 +308,61 @@ export class PiRuntime {
       state.updatedAt = Date.now();
     }, ctx);
     return submission.id;
+  }
+
+  /** 拉取图片附件字节。
+   *  404 需要退避重试：上传完成后立刻回源，可能撞上对象存储 CDN 的传播延迟
+   *  （边缘还缓存着 404），重试时附加 cache-busting 参数绕开边缘负缓存。 */
+  private async readImageBytes(attachment: PiAttachment): Promise<Uint8Array> {
+    if (attachment.size > 25 * 1024 * 1024) {
+      throw new Error(`附件过大: ${attachment.name}`);
+    }
+    // [重试前的等待毫秒]；0 表示立即。总窗口约 10.5s，覆盖对象存储上传后的短暂不可读期
+    const retryDelays = [0, 500, 1000, 2000, 3000, 4000];
+    let lastError: unknown;
+    for (let attempt = 0; attempt < retryDelays.length; attempt++) {
+      if (retryDelays[attempt] > 0) {
+        await new Promise((resolveDelay) =>
+          setTimeout(resolveDelay, retryDelays[attempt]),
+        );
+      }
+      try {
+        const url =
+          attempt === 0
+            ? attachment.url
+            : `${attachment.url}${attachment.url.includes("?") ? "&" : "?"}hcode-retry=${attempt}`;
+        const response = await fetch(url, {
+          // ImageKit 等对象存储可能返回 3xx 跳转，跟随即可；URL 来源已由 isManagedUrl 校验
+          redirect: "follow",
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) {
+          throw new Error(
+            `无法读取附件(${response.status}): ${attachment.name}`,
+          );
+        }
+        if (
+          Number(response.headers.get("content-length") ?? 0) >
+          25 * 1024 * 1024
+        ) {
+          throw new Error(`附件过大: ${attachment.name}`);
+        }
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (bytes.length > 25 * 1024 * 1024) {
+          throw new Error(`附件过大: ${attachment.name}`);
+        }
+        return bytes;
+      } catch (error) {
+        lastError = error;
+        // 附件过大的重试没有意义，直接抛出
+        if (error instanceof Error && error.message.startsWith("附件过大")) {
+          throw error;
+        }
+      }
+    }
+    const reason =
+      lastError instanceof Error ? lastError.message : String(lastError);
+    throw new Error(`读取附件失败: ${attachment.name} (${reason})`);
   }
 
   // Decisions persist in Pi and are reread by the original ToolTask after restart.

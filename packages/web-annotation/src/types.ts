@@ -74,6 +74,8 @@ export type AnnotationWindow = Window & {
   editWebAnnotation?: (pinIndex: number) => boolean;
   /** 移除指定序号的标记（pin），找不到返回 false */
   removeWebAnnotation?: (pinIndex: number) => boolean;
+  /** 清除页面上全部批注标记并退出审查模式（宿主发送消息后调用） */
+  clearWebAnnotation?: () => void;
   /** 防止脚本重复注入时重复挂 document 级监听 */
   __hcodeConfirmRelay?: boolean;
 };
