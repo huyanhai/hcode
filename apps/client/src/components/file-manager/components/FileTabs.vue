@@ -1,3 +1,28 @@
+<template>
+  <div v-if="files.length" class="fm-tabs" role="tablist">
+    <div
+      v-for="file in files"
+      :key="file.path"
+      class="fm-tab"
+      role="tab"
+      :aria-selected="file.path === activePath"
+      :class="{ 'is-active': file.path === activePath }"
+      @click="emit('select', file.path)"
+    >
+      <span class="fm-tab-name">{{ file.name }}</span>
+      <span
+        v-if="file.conflicted"
+        class="fm-dot is-conflict"
+        title="外部已修改，存在冲突"
+      />
+      <span v-else-if="isDirty(file)" class="fm-dot" title="未保存" />
+      <button class="fm-close" @click.stop="emit('close', file.path)">
+        <X :size="12" />
+      </button>
+    </div>
+  </div>
+</template>
+
 <script setup lang="ts">
 import { X } from "lucide-vue-next";
 import type { OpenFile } from "../store";
@@ -16,27 +41,6 @@ function isDirty(file: OpenFile): boolean {
   return file.content !== file.savedContent;
 }
 </script>
-
-<template>
-  <div v-if="files.length" class="fm-tabs" role="tablist">
-    <div
-      v-for="file in files"
-      :key="file.path"
-      class="fm-tab"
-      role="tab"
-      :aria-selected="file.path === activePath"
-      :class="{ 'is-active': file.path === activePath }"
-      @click="emit('select', file.path)"
-    >
-      <span class="fm-tab-name">{{ file.name }}</span>
-      <span v-if="file.conflicted" class="fm-dot is-conflict" title="外部已修改，存在冲突" />
-      <span v-else-if="isDirty(file)" class="fm-dot" title="未保存" />
-      <button class="fm-close" type="button" title="关闭" @click.stop="emit('close', file.path)">
-        <X :size="12" />
-      </button>
-    </div>
-  </div>
-</template>
 
 <style scoped>
 .fm-tabs {

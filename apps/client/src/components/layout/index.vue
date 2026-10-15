@@ -14,8 +14,11 @@
     >
       <slot name="left" />
     </ResizablePanel>
+    <!-- 折叠后 handle 禁用 + 宽度清零：不允许拖拽直接展开，只能通过顶部图标走 expand() -->
     <ResizableHandle
-      class="mt-20 mb-10 opacity-0"
+      class="layout-handle mt-20 mb-10 opacity-0"
+      :class="!left && 'is-collapsed'"
+      :disabled="!left"
       @dragging="isBusy = $event"
     />
     <ResizablePanel
@@ -28,7 +31,9 @@
       <slot name="middle" />
     </ResizablePanel>
     <ResizableHandle
-      class="mt-20 mb-2 opacity-0"
+      class="layout-handle mt-20 mb-2 opacity-0"
+      :class="!right && 'is-collapsed'"
+      :disabled="!right"
       @dragging="isBusy = $event"
     />
     <ResizablePanel
@@ -175,3 +180,13 @@ function panelResize(size: number, type: PanelType) {
 //#region Expose
 //#endregion
 </script>
+
+<style scoped>
+/* 折叠态的 handle：宽度（含 after 伪元素命中区）清零并禁用指针事件，
+   与 FileManager 侧栏折叠行为一致。保留节点本身，reka 靠 DOM 统计 handle 数量 */
+.layout-handle.is-collapsed {
+  width: 0;
+  min-width: 0;
+  pointer-events: none;
+}
+</style>

@@ -4,7 +4,7 @@
     每个都是独立渲染进程，比较吃内存）：
       <Tabs keep-alive ... />
   -->
-  <div class="pb-2 h-full pr-2">
+  <div class="pb-1 h-full pr-1">
     <Tabs
       v-model="activeTab"
       :list="tabsConfig"
@@ -25,7 +25,7 @@
 </template>
 <script lang="ts" setup>
 import Webview from "@/components/webview/index.vue";
-import FilePanel from "@/components/file-panel/index.vue";
+import FilePanel from "@/components/file-manager/index.vue";
 import Tabs from "@/components/tabs/index.vue";
 import type { TTabItem } from "@/components/tabs/types.js";
 import { FolderOpen, Globe, Webcam } from "@lucide/vue";

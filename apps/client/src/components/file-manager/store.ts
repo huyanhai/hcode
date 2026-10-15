@@ -2,15 +2,7 @@ import { defineStore } from "pinia";
 import { computed, reactive, ref, shallowRef } from "vue";
 import type { FileNode, FileProvider } from "./types";
 import { dirname, joinPath } from "./utils/path";
-
-/** 展开后的可见行，供虚拟滚动使用。 */
-export interface FlatRow {
-  node: FileNode;
-  depth: number;
-  hasChildren: boolean;
-  expanded: boolean;
-  loading: boolean;
-}
+import { DEFAULT_IGNORE } from "./constants/files";
 
 export interface OpenFile {
   path: string;
@@ -26,24 +18,12 @@ export interface OpenFile {
   conflicted: boolean;
 }
 
-/** 默认忽略项：跳过依赖与构建产物，避免无意义加载。 */
-const DEFAULT_IGNORE = [
-  ".git",
-  "node_modules",
-  "dist",
-  "build",
-  ".turbo",
-  ".cache",
-  ".DS_Store",
-  "*.log",
-  "*.lock",
-];
-
 export const useFileManagerStore = defineStore("file-manager", () => {
   const provider = shallowRef<FileProvider | null>(null);
   const root = ref("");
   const tree = ref<FileNode[]>([]);
-  const expandedPaths = ref(new Set<string>());
+  /** 已展开的目录路径。受控数组，直接交给 reka-ui 的 TreeRoot。 */
+  const expandedPaths = ref<string[]>([]);
   /** 正在加载子目录的路径，避免重复请求。 */
   const loadingPaths = ref(new Set<string>());
   const ignore = ref<string[]>([...DEFAULT_IGNORE]);
@@ -54,52 +34,19 @@ export const useFileManagerStore = defineStore("file-manager", () => {
   const rootLabel = computed(() => provider.value?.rootLabel ?? "");
 
   const activeFile = computed(
-    () => openFiles.value.find((file) => file.path === activePath.value) ?? null,
+    () =>
+      openFiles.value.find((file) => file.path === activePath.value) ?? null,
   );
 
   const hasDirtyFiles = computed(() =>
     openFiles.value.some((file) => file.content !== file.savedContent),
   );
 
-  /**
-   * 把树拍平成可见行列表。
-   *
-   * 目录树节点数量可能上万（尤其 node_modules 未忽略干净时），
-   * 递归组件直接渲染会卡死，因此统一走扁平列表 + 虚拟滚动。
-   */
-  const flatRows = computed<FlatRow[]>(() => {
-    const rows: FlatRow[] = [];
-    const expanded = expandedPaths.value;
-
-    const walk = (nodes: FileNode[], depth: number): void => {
-      // 目录优先、同类按名称排序，与主流编辑器一致
-      const sorted = [...nodes].sort((a, b) => {
-        if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
-        return a.name.localeCompare(b.name, undefined, { numeric: true });
-      });
-
-      for (const node of sorted) {
-        const hasChildren = node.type === "directory";
-        const isExpanded = expanded.has(node.path);
-        rows.push({
-          node,
-          depth,
-          hasChildren,
-          expanded: isExpanded,
-          loading: loadingPaths.value.has(node.path),
-        });
-        if (hasChildren && isExpanded && node.children?.length) {
-          walk(node.children, depth + 1);
-        }
-      }
-    };
-
-    walk(tree.value, 0);
-    return rows;
-  });
-
   /** 递归查找节点。 */
-  function findNode(path: string, nodes: FileNode[] = tree.value): FileNode | null {
+  function findNode(
+    path: string,
+    nodes: FileNode[] = tree.value,
+  ): FileNode | null {
     for (const node of nodes) {
       if (node.path === path) return node;
       if (node.children?.length) {
@@ -119,47 +66,67 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     provider.value = options.provider;
     root.value = options.root;
     if (options.ignore) ignore.value = options.ignore;
-    tree.value = await options.provider.list({ path: options.root, ignore: ignore.value });
+    // 根目录变了，上一棵树的展开态对新目录没有意义，一并清掉
+    expandedPaths.value = [];
+    tree.value = await options.provider.list({
+      path: options.root,
+      ignore: ignore.value,
+    });
   }
 
-  /** 展开目录：首次展开时懒加载子节点，之后复用缓存。 */
-  async function toggle(path: string): Promise<void> {
-    const next = new Set(expandedPaths.value);
-    if (next.has(path)) {
-      next.delete(path);
-      expandedPaths.value = next;
-      return;
-    }
-
-    next.add(path);
+  /**
+   * 更新展开项（受控，由 TreeRoot 的展开事件驱动）。
+   *
+   * 先同步落状态再异步拉子节点：点击到高亮之间不能有 IO 等待，
+   * 否则展开动画会顿一下。
+   */
+  async function setExpanded(paths: string[]): Promise<void> {
+    const next = [...new Set(paths)];
+    const added = next.filter((path) => !expandedPaths.value.includes(path));
     expandedPaths.value = next;
 
-    const node = findNode(path);
-    if (!node || node.type !== "directory" || node.children?.length || loadingPaths.value.has(path)) {
-      return;
-    }
+    await Promise.all(
+      added.map(async (path) => {
+        const node = findNode(path);
+        if (
+          !node ||
+          node.type !== "directory" ||
+          node.children?.length ||
+          loadingPaths.value.has(path)
+        ) {
+          return;
+        }
 
-    loadingPaths.value = new Set(loadingPaths.value).add(path);
-    try {
-      const children = await provider.value!.list({ path, ignore: ignore.value });
-      node.children = children;
-    } catch (error) {
-      // 加载失败时收起，避免留下一个永远转圈的节点
-      const rollback = new Set(expandedPaths.value);
-      rollback.delete(path);
-      expandedPaths.value = rollback;
-      throw error;
-    } finally {
-      const done = new Set(loadingPaths.value);
-      done.delete(path);
-      loadingPaths.value = done;
-    }
+        loadingPaths.value = new Set(loadingPaths.value).add(path);
+        try {
+          node.children = await provider.value!.list({
+            path,
+            ignore: ignore.value,
+          });
+        } catch (error) {
+          // 加载失败时收起，避免留下一个永远转圈的节点
+          expandedPaths.value = expandedPaths.value.filter(
+            (item) => item !== path,
+          );
+          throw error;
+        } finally {
+          const done = new Set(loadingPaths.value);
+          done.delete(path);
+          loadingPaths.value = done;
+        }
+      }),
+    );
   }
 
   /** 刷新单个目录（新建/重命名/删除后调用）。 */
   async function refresh(path: string): Promise<void> {
     const node = findNode(path);
-    if (!node || node.type !== "directory" || !expandedPaths.value.has(path)) return;
+    if (
+      !node ||
+      node.type !== "directory" ||
+      !expandedPaths.value.includes(path)
+    )
+      return;
     node.children = await provider.value!.list({ path, ignore: ignore.value });
   }
 
@@ -210,7 +177,11 @@ export const useFileManagerStore = defineStore("file-manager", () => {
       throw new Error("文件已被外部程序修改，请先解决冲突再保存。");
     }
 
-    await provider.value!.write({ path: file.path, content: file.content, overwrite: true });
+    await provider.value!.write({
+      path: file.path,
+      content: file.content,
+      overwrite: true,
+    });
     file.savedContent = file.content;
     file.conflicted = false;
     if (node) file.mtimeMs = node.mtimeMs;
@@ -250,7 +221,10 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     await openFile(path);
   }
 
-  async function createDirectory(parentPath: string, name: string): Promise<void> {
+  async function createDirectory(
+    parentPath: string,
+    name: string,
+  ): Promise<void> {
     const path = joinPath(parentPath, name);
     await provider.value!.mkdir(path);
     await refresh(parentPath);
@@ -267,7 +241,14 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     if (moved) {
       const refreshed = findNode(newPath);
       openFiles.value = openFiles.value.map((file) =>
-        file.path === path ? { ...file, path: newPath, name: newName, mtimeMs: refreshed?.mtimeMs ?? file.mtimeMs } : file,
+        file.path === path
+          ? {
+              ...file,
+              path: newPath,
+              name: newName,
+              mtimeMs: refreshed?.mtimeMs ?? file.mtimeMs,
+            }
+          : file,
       );
       if (activePath.value === path) activePath.value = newPath;
     }
@@ -291,7 +272,10 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     const parentDirs = new Set(changedPaths.map((path) => dirname(path)));
     for (const dir of parentDirs) {
       if (dir === root.value) {
-        tree.value = await provider.value!.list({ path: root.value, ignore: ignore.value });
+        tree.value = await provider.value!.list({
+          path: root.value,
+          ignore: ignore.value,
+        });
       } else {
         await refresh(dir);
       }
@@ -342,6 +326,8 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     // state
     root,
     tree,
+    expandedPaths,
+    loadingPaths,
     openFiles,
     activePath,
     ignore,
@@ -349,10 +335,9 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     rootLabel,
     activeFile,
     hasDirtyFiles,
-    flatRows,
     // actions
     initialize,
-    toggle,
+    setExpanded,
     refresh,
     findNode,
     openFile,

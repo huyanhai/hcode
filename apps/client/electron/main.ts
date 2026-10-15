@@ -150,7 +150,7 @@ app
       );
       return result.canceled ? null : (result.filePaths[0] ?? null);
     });
-    // 文件管理模块（@hcode/file-manager）的本地 fs 通道。
+    // 文件面板（src/components/file-manager）的本地 fs 通道。
     // 注册在 select-directory 之后：用户选定的目录即可作为文件树根目录。
     registerFileIpc();
     Menu.setApplicationMenu(

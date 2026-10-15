@@ -1,5 +1,14 @@
 import type { FileNode, ListOptions } from "../types";
-import type { FileNodeDto } from "../env";
+
+/**
+ * preload 通过 contextBridge 暴露的 fs 桥接。
+ *
+ * 类型来自 `apps/client/types/desktop.ts` 的全局声明，这里用派生类型取用，
+ * 避免跨出 `src/` 引入相对路径。
+ */
+type FsBridge = NonNullable<Window["desktop"]>["fs"];
+/** `fs:list` 返回的节点载荷。 */
+type FsNodePayload = Awaited<ReturnType<FsBridge["list"]>>[number];
 
 /**
  * 基于 Electron IPC 的数据源，访问本地磁盘。
@@ -11,7 +20,7 @@ import type { FileNodeDto } from "../env";
 export class ElectronFileProvider {
   constructor(readonly rootLabel = "本地") {}
 
-  private get bridge(): NonNullable<NonNullable<Window["desktop"]>["fs"]> {
+  private get bridge(): FsBridge {
     const bridge = window.desktop?.fs;
     if (!bridge) {
       throw new Error(
@@ -49,7 +58,7 @@ export class ElectronFileProvider {
   }
 }
 
-function normalizeNode(dto: FileNodeDto): FileNode {
+function normalizeNode(dto: FsNodePayload): FileNode {
   return {
     name: dto.name,
     path: dto.path,

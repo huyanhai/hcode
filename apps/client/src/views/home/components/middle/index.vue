@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-full relative pb-2">
+  <div class="flex flex-col h-full relative pb-1">
     <div class="h-12 shrink-0 flex items-center justify-between px-2">
       <ChangeTabBtn
         :class="cn('flex-none',!showLeft && isDesktop && 'ml-[71px]')"
@@ -17,7 +17,7 @@
       :class="
         cn(
           'relative bg-background border rounded-tl-2xl rounded-bl-2xl text-foreground flex-auto h-1/2',
-          !showRight && 'rounded-br-2xl rounded-tr-2xl mr-2',
+          !showRight && 'rounded-br-2xl rounded-tr-2xl mr-1',
           !showLeft && 'ml-2',
         )
       "

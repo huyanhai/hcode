@@ -5,7 +5,6 @@ import { DatabaseModule } from '../database/database.module';
 import { ModelProfilesModule } from '../model-profiles/model-profiles.module';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { SessionsModule } from '../sessions/sessions.module';
-import { FilesModule } from '../files/files.module';
 import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionFilter } from '../common/api-exception.filter';
 
@@ -15,7 +14,6 @@ import { ApiExceptionFilter } from '../common/api-exception.filter';
     ModelProfilesModule,
     WorkspacesModule,
     SessionsModule,
-    FilesModule,
   ],
   controllers: [AgentController],
   providers: [

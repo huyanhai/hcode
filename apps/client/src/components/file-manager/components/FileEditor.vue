@@ -1,5 +1,19 @@
+<template>
+  <div class="fm-editor">
+    <div v-if="file.error" class="fm-error">{{ file.error }}</div>
+    <div v-else-if="file.loading" class="fm-loading">加载中…</div>
+    <div ref="host" class="fm-host" />
+  </div>
+</template>
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, nextTick, ref, shallowRef, watch } from "vue";
+import {
+  onBeforeUnmount,
+  onMounted,
+  nextTick,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import { basicSetup } from "codemirror";
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
@@ -20,7 +34,11 @@ const languageCompartment = new Compartment();
 /** 记录进入编辑时的文档版本，用于区分「本地改动」与「外部同步的更新」。 */
 let applyingExternal = false;
 
-async function createView(container: HTMLElement, content: string, path: string): Promise<void> {
+async function createView(
+  container: HTMLElement,
+  content: string,
+  path: string,
+): Promise<void> {
   const language = await resolveLanguage(path);
 
   const state = EditorState.create({
@@ -51,7 +69,8 @@ async function createView(container: HTMLElement, content: string, path: string)
           fontSize: "13px",
         },
         ".cm-scroller": {
-          fontFamily: "var(--fm-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
+          fontFamily:
+            "var(--fm-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
           lineHeight: "1.6",
         },
         ".cm-content": { caretColor: "var(--fm-editor-fg, #1f2937)" },
@@ -75,7 +94,8 @@ async function createView(container: HTMLElement, content: string, path: string)
  * 文件尚在加载时先建空文档视图，内容到达后由 content 的 watch 回填。
  */
 onMounted(() => {
-  if (host.value) void createView(host.value, props.file.content, props.file.path);
+  if (host.value)
+    void createView(host.value, props.file.content, props.file.path);
 });
 
 watch(
@@ -109,14 +129,6 @@ onBeforeUnmount(() => {
   view.value = null;
 });
 </script>
-
-<template>
-  <div class="fm-editor">
-    <div v-if="file.error" class="fm-error">{{ file.error }}</div>
-    <div v-else-if="file.loading" class="fm-loading">加载中…</div>
-    <div ref="host" class="fm-host" />
-  </div>
-</template>
 
 <style scoped>
 .fm-editor {

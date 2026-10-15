@@ -2,8 +2,8 @@
  * 文件管理模块的核心类型。
  *
  * 设计要点：UI 层（目录树 / 编辑器 / 标签页）只依赖 `FileProvider` 接口，
- * 不关心数据来自本地磁盘（Electron IPC）还是远端服务（HTTP）。
- * 因此同一个组件可以在桌面端和 Web 端复用。
+ * 不关心底层怎么取数据（当前由 Electron IPC 直读本地磁盘实现）。
+ * 保留这层抽象是为了之后更换数据源时不必改动 UI。
  */
 
 /** 树节点。目录的 `children` 为 `null` 表示尚未加载（懒加载）。 */
@@ -73,12 +73,50 @@ export interface FileProvider {
 /** 判断路径是否指向二进制文件（依据扩展名的启发式判断）。 */
 export function isBinaryPath(path: string): boolean {
   const binaryExtensions = new Set([
-    "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "svg",
-    "pdf", "zip", "gz", "tar", "bz2", "7z", "rar", "xz",
-    "mp3", "mp4", "wav", "ogg", "webm", "mov", "avi", "flac",
-    "woff", "woff2", "ttf", "otf", "eot",
-    "exe", "dll", "so", "dylib", "wasm", "node", "class", "jar",
-    "db", "sqlite", "bin", "dat", "pack", "idx",
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "avif",
+    "bmp",
+    "ico",
+    "svg",
+    "pdf",
+    "zip",
+    "gz",
+    "tar",
+    "bz2",
+    "7z",
+    "rar",
+    "xz",
+    "mp3",
+    "mp4",
+    "wav",
+    "ogg",
+    "webm",
+    "mov",
+    "avi",
+    "flac",
+    "woff",
+    "woff2",
+    "ttf",
+    "otf",
+    "eot",
+    "exe",
+    "dll",
+    "so",
+    "dylib",
+    "wasm",
+    "node",
+    "class",
+    "jar",
+    "db",
+    "sqlite",
+    "bin",
+    "dat",
+    "pack",
+    "idx",
   ]);
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return binaryExtensions.has(ext);

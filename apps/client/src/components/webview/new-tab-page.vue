@@ -33,13 +33,14 @@ import {
   SquareTerminal,
 } from "@lucide/vue";
 import Button from "@/components/ui/button/Button.vue";
+import { useDesktop } from "@/hooks/useDesktop.js";
 import { KbdGroup, Kbd } from "../ui/kbd/index";
 
 /**
  * 新标签页起始页：无网址时替代 webview 渲染。
  * 工具卡片只负责抛出 id，具体行为（打开变更面板 / 终端等）由宿主决定。
  */
-const tools = [
+const allTools = [
   { id: "changes", label: "变更", shortcut: "^⇧G", icon: SquarePlus },
   { id: "terminal", label: "终端", shortcut: "^`", icon: SquareTerminal },
   { id: "files", label: "文件", shortcut: "⌘P", icon: FolderOpen },
@@ -50,6 +51,16 @@ const tools = [
     icon: MessageCirclePlus,
   },
 ] as const;
+
+const { isDesktop } = useDesktop();
+
+/**
+ * 「文件」面板靠 Electron IPC 直读本地磁盘，浏览器里没有可去之处，
+ * 因此非桌面端直接从工具列表里摘掉，避免点开一个空面板。
+ */
+const tools = computed(() =>
+  allTools.filter((tool) => isDesktop.value || tool.id !== "files"),
+);
 
 const emit = defineEmits<{ select: [tool: string] }>();
 //#region Props
