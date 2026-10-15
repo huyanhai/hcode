@@ -38,6 +38,14 @@ export interface RenameOptions {
   newPath: string;
 }
 
+/** 侧栏顶部「目录」下拉框的一个可选项。 */
+export interface RootOption {
+  /** 目录绝对路径，同时作为下拉项的 value。 */
+  path: string;
+  /** 下拉里显示的名字，一般是目录名。 */
+  label: string;
+}
+
 export interface RemoveOptions {
   path: string;
   /** 删除非空目录时必须显式为 true。 */

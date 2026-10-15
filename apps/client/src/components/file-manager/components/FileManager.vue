@@ -16,25 +16,43 @@
       :collapsible="true"
       @resize="onSidebarResize"
     >
-      <aside class="fm-sidebar">
-        <header class="fm-toolbar">
-          <span class="fm-root-label" :title="store.root">
-            {{ store.rootLabel }}
-          </span>
-        </header>
+      <aside class="h-full">
+        <Select
+          v-if="rootOptions.length"
+          :model-value="root"
+          @update:model-value="onRootSelect"
+        >
+          <SelectTrigger
+            class="rounded-full shadow m-2"
+            size="sm"
+            :title="root"
+          >
+            <SelectValue placeholder="选择目录" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem
+                v-for="option in rootOptions"
+                :key="option.path"
+                :value="option.path"
+                :title="option.path"
+              >
+                {{ option.label }}
+              </SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
 
-        <div class="fm-tree-wrap">
-          <FileTree
-            :items="store.tree"
-            :expanded="store.expandedPaths"
-            :active-path="store.activePath"
-            :loading-paths="store.loadingPaths"
-            :rowHeight="32"
-            @update:expanded="onExpandedChange"
-            @open="openFile"
-            @contextmenu="onTreeContextMenu"
-          />
-        </div>
+        <FileTree
+          :items="store.tree"
+          :expanded="store.expandedPaths"
+          :active-path="store.activePath"
+          :loading-paths="store.loadingPaths"
+          :rowHeight="32"
+          @update:expanded="onExpandedChange"
+          @open="openFile"
+          @contextmenu="onTreeContextMenu"
+        />
       </aside>
     </ResizablePanel>
 
@@ -122,7 +140,6 @@ import {
   ChevronDown,
   ChevronUp,
   PanelLeftClose,
-  RefreshCw,
   Save,
 } from "lucide-vue-next";
 import {
@@ -134,7 +151,7 @@ import FileEditor from "./FileEditor.vue";
 import FileTabs from "./FileTabs.vue";
 import FileTree from "./FileTree.vue";
 import { useFileManagerStore } from "../store";
-import type { FileNode, FileProvider } from "../types";
+import type { FileNode, FileProvider, RootOption } from "../types";
 import { basename, dirname, joinPath } from "../utils/path";
 
 /** 侧栏最小占比（%），与侧栏面板的 `min-size` 保持一致，低于它就认为已折叠。 */
@@ -142,20 +159,27 @@ const SIDEBAR_MIN_SIZE = 15;
 /** 首次挂载时侧栏占比。 */
 const SIDEBAR_DEFAULT_SIZE = 40;
 
-const props = defineProps<{
-  provider: FileProvider;
-  /** 文件树根目录。 */
-  root: string;
-  /** 覆盖默认忽略列表。 */
-  ignore?: string[];
-  /** 是否监听外部文件变更。 */
-  watch?: boolean;
-  /** 关闭有未保存改动的标签时是否直接关闭（false 时触发 beforeunload 拦截）。 */
-  forceClose?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    provider: FileProvider;
+    /** 文件树根目录。 */
+    root: string;
+    /** 侧栏顶部下拉框的可选目录（当前项目下的文件夹列表）。 */
+    rootOptions?: RootOption[];
+    /** 覆盖默认忽略列表。 */
+    ignore?: string[];
+    /** 是否监听外部文件变更。 */
+    watch?: boolean;
+    /** 关闭有未保存改动的标签时是否直接关闭（false 时触发 beforeunload 拦截）。 */
+    forceClose?: boolean;
+  }>(),
+  { rootOptions: () => [] },
+);
 
 const emit = defineEmits<{
   (event: "error", error: Error): void;
+  /** 下拉框换目录：由宿主更新根目录。 */
+  (event: "update:root", path: string): void;
 }>();
 
 const store = useFileManagerStore();
@@ -168,6 +192,18 @@ const stopWatch = ref<(() => void) | undefined>(undefined);
 const sidebarRef = useTemplateRef<typeof ResizablePanel>("sidebarRef");
 
 const activeFile = computed(() => store.activeFile);
+
+/**
+ * 目录下拉框切换。
+ *
+ * 这里不直接改 store——根目录由宿主（file-manager/index.vue）持有，
+ * 换根会连带重建整棵树与标签页，交给宿主统一决策更安全。
+ */
+function onRootSelect(value: unknown): void {
+  // reka 的 Select 值类型是 AcceptableValue（可能是 null / number），这里只接受字符串路径
+  if (typeof value !== "string" || !value || value === props.root) return;
+  emit("update:root", value);
+}
 
 /**
  * reka Splitter 在完成首次布局测量之前，collapse/expand 等命令式调用会
@@ -371,144 +407,3 @@ onBeforeUnmount(() =>
   window.removeEventListener("beforeunload", onBeforeUnload),
 );
 </script>
-
-<style scoped>
-.fm-root {
-  height: 100%;
-  min-height: 0;
-  background: var(--fm-editor-bg, #ffffff);
-  color: var(--fm-fg, #111827);
-  font-size: 13px;
-}
-
-/*
-  宽度交给 ResizablePanel 控制，这里只负责填满并裁掉溢出 ——
-  折叠到 0 宽时树内容若撑出来，会把编辑区顶开。
-  分隔线由 ResizableHandle（.fm-handle）提供，这里不再加 border，
-  否则折叠后仍会残留 1px。
-*/
-.fm-sidebar {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--fm-sidebar-bg, #fafafa);
-}
-
-.fm-tree-wrap {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.fm-content {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-}
-
-/* 覆盖 ResizableHandle 默认的 1px bg-border，hover 时给一个「可拖」的提示 */
-.fm-handle {
-  width: 2px;
-  background: var(--fm-border, #e5e7eb);
-  transition: background 0.15s ease;
-}
-
-.fm-handle:hover {
-  background: var(--fm-accent, #9ca3af);
-}
-
-/* 侧栏折叠后：线不显示、宽度归零、无法拖拽，只能靠工具栏按钮展开 */
-.fm-handle[data-disabled] {
-  width: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.fm-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--fm-border, #e5e7eb);
-}
-
-.fm-content-toolbar {
-  background: var(--fm-tabs-bg, #f3f4f6);
-}
-
-.fm-root-label {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fm-active-path {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--fm-fg-muted, #6b7280);
-}
-
-.fm-actions {
-  display: flex;
-  gap: 2px;
-  margin-left: auto;
-}
-
-.fm-actions button,
-.fm-icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.fm-actions button:hover,
-.fm-icon-button:hover {
-  background: var(--fm-hover, rgba(0, 0, 0, 0.08));
-}
-
-.fm-editor-wrap {
-  flex: 1;
-  min-height: 0;
-}
-
-.fm-placeholder-panel {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  color: var(--fm-fg-muted, #9ca3af);
-}
-
-.fm-placeholder {
-  color: var(--fm-fg-muted, #9ca3af);
-}
-
-.fm-status {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  font-size: 12px;
-  color: var(--fm-fg-muted, #6b7280);
-  border-top: 1px solid var(--fm-border, #e5e7eb);
-  background: var(--fm-sidebar-bg, #fafafa);
-}
-
-.fm-status-icon {
-  color: var(--fm-danger, #dc2626);
-}
-</style>
