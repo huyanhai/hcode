@@ -6,6 +6,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import { SessionsService } from '../sessions/sessions.service';
+import { FilesService } from '../files/files.service';
 import type {
   CreateWorkspaceDto,
   UpdateWorkspaceDto,
@@ -17,6 +18,7 @@ export class WorkspacesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessions: SessionsService,
+    private readonly files: FilesService,
   ) {}
 
   async list(): Promise<WorkspaceSummary[]> {
@@ -52,6 +54,8 @@ export class WorkspacesService {
     await this.prisma.$executeRaw`
       UPDATE workspaces SET status = 'active' WHERE id = ${workspace.id}
     `;
+    // 工作区目录即文件管理的授权根，未注册则文件接口会拒绝访问
+    folders.forEach((folder) => this.files.registerRoot(folder));
     return this.toSummary(workspace, 'active');
   }
 
@@ -71,6 +75,7 @@ export class WorkspacesService {
         lastOpenedAt: BigInt(Date.now()),
       },
     });
+    folders.forEach((folder) => this.files.registerRoot(folder));
     return this.toSummary(updated, 'active');
   }
 

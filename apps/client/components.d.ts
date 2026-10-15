@@ -83,6 +83,7 @@ declare module 'vue' {
     FieldSeparator: typeof import('./src/components/ui/field/FieldSeparator.vue')['default']
     FieldSet: typeof import('./src/components/ui/field/FieldSet.vue')['default']
     FieldTitle: typeof import('./src/components/ui/field/FieldTitle.vue')['default']
+    FilePanel: typeof import('./src/components/file-panel/index.vue')['default']
     FormControl: typeof import('./src/components/ui/form/FormControl.vue')['default']
     FormDescription: typeof import('./src/components/ui/form/FormDescription.vue')['default']
     FormItem: typeof import('./src/components/ui/form/FormItem.vue')['default']

@@ -25,9 +25,10 @@
 </template>
 <script lang="ts" setup>
 import Webview from "@/components/webview/index.vue";
+import FilePanel from "@/components/file-panel/index.vue";
 import Tabs from "@/components/tabs/index.vue";
 import type { TTabItem } from "@/components/tabs/types.js";
-import { Globe, Webcam } from "@lucide/vue";
+import { FolderOpen, Globe, Webcam } from "@lucide/vue";
 import { h } from "vue";
 import { toast } from "vue-sonner";
 import ChangeTabBtn from "../change-tab-btn/index.vue";
@@ -37,10 +38,7 @@ const DEFAULT_URL = "https://www.baidu.com/";
 /** tab 自增序号：value 必须唯一，reka-ui 靠它区分 tab */
 let tabSeq = 0;
 
-const tabsConfig = ref<TTabItem[]>([
-  createTab("Account"),
-  createTab("Account1"),
-]);
+const tabsConfig = ref<TTabItem[]>([]);
 /** 当前激活的 tab：受控选中态，新建 tab 时能自动切过去 */
 const activeTab = ref<TTabItem["value"]>(tabsConfig.value[0]?.value ?? "");
 
@@ -145,7 +143,13 @@ function onTabAction(payload: {
   // 新标签页上的工具卡片：具体行为（打开变更 / 终端等）由这里接入
   if (payload.type === "newtab-tool") {
     const tool = (payload.data as { tool?: string } | undefined)?.tool ?? "";
-    toast.info(`「${findTab(payload.value)?.label ?? payload.value}」触发工具：${tool}`);
+    if (tool === "files") {
+      showFilesTab(payload.value);
+      return;
+    }
+    toast.info(
+      `「${findTab(payload.value)?.label ?? payload.value}」触发工具：${tool}`,
+    );
     return;
   }
   console.debug("[tab-action]", payload);
@@ -181,6 +185,32 @@ function createTab(label: string, url = DEFAULT_URL): TTabItem {
 
 function findTab(value: TTabItem["value"]) {
   return tabsConfig.value.find((item) => item.value === value);
+}
+
+/**
+ * 打开「文件」面板：把触发点击的那个新标签页**就地替换**成文件面板
+ * （改 label / icon / content，tab 的 value 不变，动态组件会自动换成 FilePanel）。
+ * tab 身份缺失时（理论上不会）兜底新开一个。
+ */
+function showFilesTab(value: TTabItem["value"]) {
+  const tab = findTab(value);
+  if (!tab) {
+    const created: TTabItem = {
+      label: "文件",
+      icon: FolderOpen,
+      value: `files-${++tabSeq}`,
+      content: FilePanel,
+    };
+    tabsConfig.value.push(created);
+    activeTab.value = created.value;
+    return;
+  }
+  tab.label = "文件";
+  tab.icon = FolderOpen;
+  tab.content = FilePanel;
+  delete tab.props;
+  delete tab.on;
+  activeTab.value = value;
 }
 
 function close(key: TTabItem["value"]) {

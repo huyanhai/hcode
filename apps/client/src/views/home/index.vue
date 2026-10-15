@@ -21,7 +21,7 @@ import Right from "./components/right/index.vue";
 import Bottom from "./components/bottom/index.vue";
 
 const showLeft = ref(true);
-const showRight = ref(true);
+const showRight = ref(false);
 const showBottom = ref(false);
 //#region Props
 //#endregion

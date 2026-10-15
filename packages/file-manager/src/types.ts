@@ -1,0 +1,85 @@
+/**
+ * 文件管理模块的核心类型。
+ *
+ * 设计要点：UI 层（目录树 / 编辑器 / 标签页）只依赖 `FileProvider` 接口，
+ * 不关心数据来自本地磁盘（Electron IPC）还是远端服务（HTTP）。
+ * 因此同一个组件可以在桌面端和 Web 端复用。
+ */
+
+/** 树节点。目录的 `children` 为 `null` 表示尚未加载（懒加载）。 */
+export interface FileNode {
+  name: string;
+  /** 绝对路径。跨平台时由 provider 归一化为 POSIX 风格（`/` 分隔）。 */
+  path: string;
+  type: "file" | "directory";
+  size: number;
+  /** 最后修改时间（epoch ms），用于外部改动检测与冲突提示。 */
+  mtimeMs: number;
+  children: FileNode[] | null;
+}
+
+export interface ListOptions {
+  path: string;
+  /** 是否递归展开整棵子树。大仓库建议关闭，改为按需展开。 */
+  recursive?: boolean;
+  /** 忽略的文件/目录名 glob 片段，例如 `node_modules`、`*.log`。 */
+  ignore?: string[];
+}
+
+export interface WriteOptions {
+  path: string;
+  content: string;
+  /** 文件已存在时是否覆盖。为 false 且文件存在则抛错。 */
+  overwrite?: boolean;
+}
+
+export interface RenameOptions {
+  path: string;
+  newPath: string;
+}
+
+export interface RemoveOptions {
+  path: string;
+  /** 删除非空目录时必须显式为 true。 */
+  recursive?: boolean;
+}
+
+/**
+ * 文件系统访问抽象。
+ *
+ * 实现方必须遵守的约束（安全边界）：
+ * 1. 所有 `path` 需要落在允许访问的根目录内，越界应抛错而非静默截断；
+ * 2. 符号链接默认不跟随（防止逃逸到根目录之外）；
+ * 3. 二进制文件不应走 `read`，由调用方通过 `isBinary` 判断后走预览通道。
+ */
+export interface FileProvider {
+  /** 供 UI 展示的根目录名，例如工作区名称。 */
+  readonly rootLabel: string;
+
+  list(options: ListOptions): Promise<FileNode[]>;
+  read(path: string): Promise<string>;
+  write(options: WriteOptions): Promise<void>;
+  rename(options: RenameOptions): Promise<void>;
+  remove(options: RemoveOptions): Promise<void>;
+  mkdir(path: string): Promise<void>;
+
+  /**
+   * 订阅外部文件变更（git checkout、其他编辑器保存等）。
+   * 返回取消订阅函数。不支持时返回 undefined。
+   */
+  watch?(paths: string[], onChange: (paths: string[]) => void): () => void;
+}
+
+/** 判断路径是否指向二进制文件（依据扩展名的启发式判断）。 */
+export function isBinaryPath(path: string): boolean {
+  const binaryExtensions = new Set([
+    "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "svg",
+    "pdf", "zip", "gz", "tar", "bz2", "7z", "rar", "xz",
+    "mp3", "mp4", "wav", "ogg", "webm", "mov", "avi", "flac",
+    "woff", "woff2", "ttf", "otf", "eot",
+    "exe", "dll", "so", "dylib", "wasm", "node", "class", "jar",
+    "db", "sqlite", "bin", "dat", "pack", "idx",
+  ]);
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return binaryExtensions.has(ext);
+}

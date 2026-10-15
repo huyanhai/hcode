@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@hcode/web-annotation": "workspace:*",
+    "@hcode/file-manager": "workspace:*",
     "@base-ui/react": "1.8.0",
     "@codemirror/merge": "6.12.2",
     "@codemirror/state": "6.7.6",

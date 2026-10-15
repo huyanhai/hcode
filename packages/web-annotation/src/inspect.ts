@@ -197,6 +197,12 @@ export function selectPageElement() {
 
   async function click(event: MouseEvent): Promise<void> {
     if (isAnnotationEvent(event)) return;
+    // 审查期间页面原生点击一律拦截：
+    // preventDefault 阻止链接跳转、表单提交等浏览器默认行为，
+    // stopImmediatePropagation 阻断事件继续传播，避免页面自身脚本（如 SPA 路由）响应点击。
+    // 批注卡片（h-annotation）内部的交互不受影响。
+    event.preventDefault();
+    event.stopImmediatePropagation();
     if (annotation || capturing) return;
     const element = choose({ x: event.clientX, y: event.clientY });
     if (!element) return;
