@@ -8,7 +8,7 @@
     <template #middle>
       <Middle v-model:right="showRight" v-model:left="showLeft" />
     </template>
-    <template #right><Right v-model="showRight" /></template>
+    <template #right><Right v-model:right="showRight" /></template>
     <template #bottom><Bottom /></template>
   </Layout>
 </template>

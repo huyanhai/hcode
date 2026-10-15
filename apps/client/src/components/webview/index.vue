@@ -7,7 +7,7 @@
             size="icon-sm"
             variant="ghost"
             class="rounded-full h-7 w-7"
-            :disabled="!canGoBack"
+            :disabled="isNewTab || !canGoBack"
             @click="goBack"
           >
             <ArrowLeft />
@@ -16,7 +16,7 @@
             size="icon-sm"
             variant="ghost"
             class="rounded-full h-7 w-7"
-            :disabled="!canGoForward"
+            :disabled="isNewTab || !canGoForward"
             @click="goForward"
           >
             <ArrowRight />
@@ -26,13 +26,14 @@
             size="icon-sm"
             variant="ghost"
             class="rounded-full h-7 w-7"
+            :disabled="isNewTab"
             @click="reload"
           >
             <RefreshCcw />
           </Button>
         </div>
         <Button
-          v-if="isDesktop"
+          v-if="isDesktop && !isNewTab"
           size="icon-sm"
           :variant="annotating ? 'default' : 'outline'"
           class="rounded-full"
@@ -47,11 +48,12 @@
           聚焦后编辑的仍是完整 href，回车提交/失焦回退逻辑不变
         -->
         <Input
+          ref="addressInputRef"
           :model-value="editingAddress ? href : displayHref"
           @update:model-value="onAddressInput"
           :class="editingAddress ? 'text-left' : 'text-center'"
           class="rounded-full h-8"
-          placeholder="输入网址"
+          :placeholder="isNewTab ? '搜索或输入网址' : '输入网址'"
           spellcheck="false"
           autocomplete="off"
           :aria-invalid="Boolean(error)"
@@ -61,7 +63,7 @@
         />
       </div>
       <Button
-        v-if="isDev && isDesktop"
+        v-if="isDev && isDesktop && !isNewTab"
         size="icon-sm"
         variant="ghost"
         class="rounded-full shrink-0"
@@ -71,7 +73,9 @@
       </Button>
     </div>
     <div class="relative w-full flex-1 min-h-0">
+      <!-- 新标签页模式（还没有地址）不渲染 webview，改渲染本地起始页 -->
       <webview
+        v-if="!isNewTab"
         ref="webviewRef"
         :src="src"
         class="w-full h-full"
@@ -86,6 +90,7 @@
         @page-title-updated="onPageTitleUpdated"
         @page-favicon-updated="onPageFaviconUpdated"
       ></webview>
+      <NewTabPage v-else @select="onToolSelect" />
       <div
         v-if="loadFailed"
         class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background"
@@ -102,6 +107,7 @@
 </template>
 <script lang="ts" setup>
 import { computed } from "vue";
+import type { ComponentPublicInstance } from "vue";
 import { Button } from "../ui/button";
 import {
   ArrowLeft,
@@ -121,8 +127,7 @@ import { useSessionSelection } from "@/stores/session-selection";
 import { useWebAnnotationStore } from "@/stores/web-annotation";
 import { normalizeUrl } from "@/utils/url";
 import { registerIpc, unregisterIpc } from "@/utils/webview";
-
-const DEFAULT_URL = "https://www.baidu.com/";
+import NewTabPage from "./new-tab-page.vue";
 
 /** Electron 的 <webview> 在 TS 里没有内置类型，这里声明用到的部分 */
 interface WebviewElement extends HTMLElement {
@@ -143,12 +148,12 @@ interface WebviewElement extends HTMLElement {
 //#region Props
 const props = withDefaults(
   defineProps<{
-    /** 初始地址；宿主后续改这个值，组件会跟着跳转 */
+    /** 初始地址；空字符串表示「新标签页」（不加载网页，渲染本地起始页）；宿主后续改这个值，组件会跟着跳转 */
     url?: string;
     /** 该实例的身份标识（通常是所属 tab），会附在事件里便于溯源 */
     tabId?: string;
   }>(),
-  { url: DEFAULT_URL, tabId: "" },
+  { url: "", tabId: "" },
 );
 //#endregion
 //#region Emits
@@ -171,6 +176,9 @@ const emit = defineEmits<{
 //#endregion
 
 const webviewRef = useTemplateRef<WebviewElement>("webviewRef");
+const addressInputRef = useTemplateRef<ComponentPublicInstance>(
+  "addressInputRef",
+);
 /** 地址栏内容（用户可编辑） */
 const href = ref(props.url);
 /** 真正交给 webview 的地址（只由校验通过的地址写入） */
@@ -198,8 +206,9 @@ let reportedUrl = props.url;
 onMounted(() => {
   void nextTick(() => {
     syncNavState();
-    registerIpc(webviewRef.value!, onWebviewIpcMessage);
   });
+  // 新标签页模式把光标放进地址栏，和浏览器一致
+  if (isNewTab.value) (addressInputRef.value?.$el as HTMLElement)?.focus();
   // 订阅主进程转发的"网页内新开标签"；只有 senderId 等于自己 guest id 的才处理
   disposeNewWindowListener =
     window.desktop?.onWebviewNewWindow?.(({ senderId, url }) => {
@@ -208,13 +217,16 @@ onMounted(() => {
     }) ?? undefined;
 });
 onBeforeUnmount(() => {
-  unregisterIpc(webviewRef.value!, onWebviewIpcMessage);
+  if (webviewRef.value)
+    unregisterIpc(webviewRef.value, onWebviewIpcMessage);
   disposeNewWindowListener?.();
   disposeNewWindowListener = undefined;
   void cancelPageAnnotation();
 });
 //#endregion
 //#region Computed
+/** 新标签页模式：还没有加载任何地址，渲染本地起始页而不是 webview */
+const isNewTab = computed(() => !src.value);
 /** 地址栏展示值：未聚焦只显示 host（含二级域名，不带协议与路径） */
 const displayHref = computed(() => {
   try {
@@ -244,6 +256,12 @@ watch(
     }
   },
 );
+
+// 新标签页首次导航后 <webview> 才挂载，ipc 监听要跟着元素的挂载/卸载走
+watch(webviewRef, (view, prev) => {
+  if (prev) unregisterIpc(prev, onWebviewIpcMessage);
+  if (view) registerIpc(view, onWebviewIpcMessage);
+});
 //#endregion
 //#region Event
 /** 地址栏输入（聚焦时编辑的是完整网址） */
@@ -495,6 +513,15 @@ function onDidFailLoad(event: {
     url: event.validatedURL,
   };
   emit("load-failed", { ...loadFailed.value });
+}
+
+/** 新标签页工具卡片点击：走通用 action 通道，具体行为由宿主决定 */
+function onToolSelect(tool: string) {
+  emit("action", {
+    type: "newtab-tool",
+    data: { tool },
+    tabId: props.tabId || undefined,
+  });
 }
 
 function goBack() {

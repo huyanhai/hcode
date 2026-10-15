@@ -17,7 +17,8 @@
       contentClass="rounded-tr-2xl rounded-br-2xl overflow-hidden border border-l-0"
     >
       <template #tab-right>
-        <ChangeTabBtn v-bind="$attrs" />
+        <!-- 折叠右侧栏的开关；上面的 v-model:right 生效后不能再靠 $attrs 透传，这里显式绑定 -->
+        <ChangeTabBtn v-model="right" />
       </template>
     </Tabs>
   </div>
@@ -26,7 +27,7 @@
 import Webview from "@/components/webview/index.vue";
 import Tabs from "@/components/tabs/index.vue";
 import type { TTabItem } from "@/components/tabs/types.js";
-import { Webcam } from "@lucide/vue";
+import { Globe, Webcam } from "@lucide/vue";
 import { h } from "vue";
 import { toast } from "vue-sonner";
 import ChangeTabBtn from "../change-tab-btn/index.vue";
@@ -53,6 +54,17 @@ const right = defineModel<boolean>("right");
 //#region Computed
 //#endregion
 //#region Watch
+/**
+ * 右侧栏展开时若一个 tab 都没有，自动补一个「新标签页」，避免空面板。
+ * immediate 覆盖挂载时就是展开态的情况。
+ */
+watch(
+  right,
+  (open) => {
+    if (open && tabsConfig.value.length === 0) add();
+  },
+  { immediate: true },
+);
 //#endregion
 //#region Event
 /**
@@ -124,12 +136,18 @@ function onAnnotationSubmitted(value: TTabItem["value"]) {
   toast.success(`「${tab?.label ?? value}」的批注已提交到会话`);
 }
 
-/** Webview 走通用 action 通道抛出的事件（目前是未知的 ipc 消息），按 type 分发 */
+/** Webview 走通用 action 通道抛出的事件，按 type 分发 */
 function onTabAction(payload: {
   value: TTabItem["value"];
   type: string;
   data?: unknown;
 }) {
+  // 新标签页上的工具卡片：具体行为（打开变更 / 终端等）由这里接入
+  if (payload.type === "newtab-tool") {
+    const tool = (payload.data as { tool?: string } | undefined)?.tool ?? "";
+    toast.info(`「${findTab(payload.value)?.label ?? payload.value}」触发工具：${tool}`);
+    return;
+  }
   console.debug("[tab-action]", payload);
 }
 //#endregion
@@ -143,7 +161,8 @@ function createTab(label: string, url = DEFAULT_URL): TTabItem {
   const value = `browser-${++tabSeq}`;
   return {
     label,
-    icon: Webcam,
+    // 还没给地址的新标签页用地球图标，加载出 favicon 后会被替换
+    icon: url ? Webcam : Globe,
     value,
     content: Webview,
     props: { url, tabId: value },
@@ -166,10 +185,13 @@ function findTab(value: TTabItem["value"]) {
 
 function close(key: TTabItem["value"]) {
   tabsConfig.value = tabsConfig.value.filter((item) => item.value !== key);
+  // 关掉最后一个 tab 时，整个右侧栏跟着收起
+  if (tabsConfig.value.length === 0) right.value = false;
 }
 
 function add() {
-  const tab = createTab(`Account${tabsConfig.value.length + 1}`);
+  // 新开 tab 默认是「新标签页」：网址为空，由 Webview 渲染本地起始页
+  const tab = createTab("新标签页", "");
   tabsConfig.value.push(tab);
   // 新开的 tab 自动激活
   activeTab.value = tab.value;
