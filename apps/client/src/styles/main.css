@@ -1,3 +1,6 @@
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
 @plugin 'tailwindcss-animate';
 @import "tailwindcss";
 
@@ -133,4 +136,13 @@
   /* body {
     @apply bg-background/100 text-foreground;
   } */
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }

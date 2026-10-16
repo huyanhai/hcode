@@ -1,4 +1,4 @@
-import type { FileNode, ListOptions } from "../types";
+import type { FileNode, FileStat, ListOptions } from "../types";
 
 /**
  * preload 通过 contextBridge 暴露的 fs 桥接。
@@ -55,6 +55,10 @@ export class ElectronFileProvider {
 
   async mkdir(path: string): Promise<void> {
     await this.bridge.mkdir(path);
+  }
+
+  async stat(path: string): Promise<FileStat> {
+    return this.bridge.stat(path);
   }
 }
 

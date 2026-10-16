@@ -1,5 +1,5 @@
 <template>
-  <div class="drag-area h-12" aria-hidden="true" />
+  <div class="drag-area h-12 fixed z-20" aria-hidden="true" />
 </template>
 <script lang="ts" setup>
 //#region Props
@@ -24,10 +24,7 @@
 
 <style scoped>
 .drag-area {
-  position: fixed;
   inset: 0 0 auto;
-  z-index: 20;
-  height: 2rem;
   user-select: none;
   -webkit-app-region: drag;
 }

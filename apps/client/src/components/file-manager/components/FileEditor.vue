@@ -36,10 +36,14 @@ let applyingExternal = false;
 
 async function createView(
   container: HTMLElement,
-  content: string,
   path: string,
 ): Promise<void> {
   const language = await resolveLanguage(path);
+
+  // 语言包加载是异步的，等待期间磁盘读取可能已完成（content 已更新）。
+  // 这里必须取最新值建文档，否则会出现「文件有内容但编辑器显示为空」，
+  // 且用户在空文档上继续输入并保存会覆盖磁盘内容。
+  const content = props.file.content;
 
   const state = EditorState.create({
     doc: content,
@@ -91,11 +95,11 @@ async function createView(
  * 创建视图的统一入口。
  * 宿主用 :key="file.path" 复用本组件（每个文件一个实例），因此视图必须在
  * onMounted 里创建 —— 仅靠 path 的 watch 的话，挂载后 path 不再变化，永远不触发。
- * 文件尚在加载时先建空文档视图，内容到达后由 content 的 watch 回填。
+ * 文件尚在加载时先建视图，文档内容在 createView 内取 props.file.content 的
+ * 最新值；加载完成后内容由下方 content 的 watch 回填。
  */
 onMounted(() => {
-  if (host.value)
-    void createView(host.value, props.file.content, props.file.path);
+  if (host.value) void createView(host.value, props.file.path);
 });
 
 watch(
@@ -105,7 +109,7 @@ watch(
     view.value?.destroy();
     view.value = null;
     await nextTick();
-    if (host.value) void createView(host.value, props.file.content, path);
+    if (host.value) void createView(host.value, path);
   },
 );
 

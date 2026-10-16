@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { computed, reactive, ref, shallowRef } from "vue";
-import type { FileNode, FileProvider } from "./types";
+import type { FileNode, FileProvider, FileStat } from "./types";
 import { dirname, joinPath } from "./utils/path";
 import { DEFAULT_IGNORE } from "./constants/files";
 
@@ -16,6 +16,25 @@ export interface OpenFile {
   error: string | null;
   /** 检测到磁盘版本比打开时更新，且本地也有改动。 */
   conflicted: boolean;
+}
+
+/** 冲突形态：磁盘上的文件被改 / 被删。 */
+export type ConflictKind = "modified" | "deleted";
+
+/**
+ * 保存时发现磁盘版本比本地基线更新（外部改过或删过文件）时抛出。
+ *
+ * 单独建一个错误类型是为了让 UI 能区分「校验/IO 失败」与「需要用户决策的冲突」：
+ * 后者要弹「是否覆盖磁盘上的版本」的确认框，而不是一句失败提示。
+ */
+export class FileConflictError extends Error {
+  constructor(
+    readonly path: string,
+    readonly kind: ConflictKind = "modified",
+  ) {
+    super(kind === "deleted" ? "文件已被外部删除" : "文件已被外部程序修改");
+    this.name = "FileConflictError";
+  }
 }
 
 export const useFileManagerStore = defineStore("file-manager", () => {
@@ -53,6 +72,57 @@ export const useFileManagerStore = defineStore("file-manager", () => {
         const found = findNode(path, node.children);
         if (found) return found;
       }
+    }
+    return null;
+  }
+
+  /**
+   * 读取磁盘元信息。
+   *
+   * 数据源不支持 `stat` 时返回 null，调用方退回用文件树节点判断（精度差，
+   * 因为树不会因外部改动自动刷新）。
+   */
+  async function statOf(path: string): Promise<FileStat | null> {
+    const current = provider.value;
+    if (!current?.stat) return null;
+    try {
+      return await current.stat(path);
+    } catch {
+      return null;
+    }
+  }
+
+  /** 把本地记录的 mtime 对齐到磁盘真实值，避免下次保存被自己的旧基线误判成冲突。 */
+  async function syncMtime(file: OpenFile): Promise<void> {
+    const stats = await statOf(file.path);
+    if (stats?.exists) file.mtimeMs = stats.mtimeMs;
+  }
+
+  /**
+   * 保存前的冲突检测，返回冲突形态；无冲突返回 null。
+   *
+   * 必须查磁盘真实 mtime：文件树在外部改动后并不会自动刷新（provider 没有
+   * watch 时永远不刷新），只比树节点会把「外部已改」漏判成无冲突，
+   * 导致用户的保存静默覆盖别人的改动。
+   */
+  async function detectConflict(file: OpenFile): Promise<ConflictKind | null> {
+    const stats = await statOf(file.path);
+
+    if (stats) {
+      // 磁盘上已经没有了：本地再保存等于重建文件，需要用户确认
+      if (!stats.exists) return "deleted";
+      // 基线未知（例如本地刚新建、树里还没有该节点）：以磁盘为准补上基线
+      if (file.mtimeMs === 0) {
+        file.mtimeMs = stats.mtimeMs;
+        return null;
+      }
+      return stats.mtimeMs > file.mtimeMs ? "modified" : null;
+    }
+
+    // 兜底：数据源没有 stat 能力时退回树节点比较
+    const node = findNode(file.path);
+    if (node && file.mtimeMs > 0 && node.mtimeMs > file.mtimeMs) {
+      return "modified";
     }
     return null;
   }
@@ -130,11 +200,34 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     node.children = await provider.value!.list({ path, ignore: ignore.value });
   }
 
-  /** 打开文件。若已打开则直接激活，不重复读盘。 */
+  /** 打开文件。若已打开则直接激活；无未保存改动时顺带对齐磁盘最新内容。 */
   async function openFile(path: string): Promise<void> {
     const existing = openFiles.value.find((file) => file.path === path);
     if (existing) {
       activePath.value = path;
+      // 没有本地改动时静默对齐一次磁盘内容：外部（其他编辑器 / 脚本）改过
+      // 文件的话，重新点击也应看到最新版。有未保存改动时不动，避免覆盖输入。
+      if (!existing.loading && existing.content === existing.savedContent) {
+        void provider.value!.read(path).then(
+          async (content) => {
+            if (
+              existing.content === existing.savedContent &&
+              existing.content !== content
+            ) {
+              existing.content = content;
+              existing.savedContent = content;
+            }
+            existing.error = null;
+            existing.conflicted = false;
+            // 基线必须跟着磁盘走，否则下次保存会把刚同步的内容误判成外部改动
+            await syncMtime(existing);
+          },
+          () => {
+            // 文件可能已被删除：标记错误，由 UI 提示
+            existing.error = "文件已被删除";
+          },
+        );
+      }
       return;
     }
 
@@ -157,6 +250,8 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     try {
       entry.content = await provider.value!.read(path);
       entry.savedContent = entry.content;
+      // 读盘后校准基线 mtime：树里的值可能已过期（文件刚被外部改过）
+      await syncMtime(entry);
     } catch (error) {
       entry.error = error instanceof Error ? error.message : String(error);
     } finally {
@@ -164,17 +259,26 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     }
   }
 
-  /** 保存当前（或指定）文件。检测磁盘版本变化以提示冲突。 */
-  async function save(path?: string): Promise<void> {
+  /**
+   * 保存当前（或指定）文件，返回是否真的写了盘。
+   *
+   * `force: true` 表示用户在冲突提示里明确选了「覆盖」，跳过冲突检查直接写盘。
+   */
+  async function save(
+    path?: string,
+    options: { force?: boolean } = {},
+  ): Promise<boolean> {
     const target = path ?? activePath.value;
     const file = openFiles.value.find((item) => item.path === target);
-    if (!file || file.content === file.savedContent) return;
+    if (!file || file.content === file.savedContent) return false;
 
-    // 保存前复查磁盘 mtime：期间被外部程序改动过则标记冲突
-    const node = findNode(file.path);
-    if (node && file.mtimeMs > 0 && node.mtimeMs > file.mtimeMs) {
-      file.conflicted = true;
-      throw new Error("文件已被外部程序修改，请先解决冲突再保存。");
+    if (!options.force) {
+      const conflict = await detectConflict(file);
+      if (conflict) {
+        // 标记冲突供标签页提示，并抛出专用错误让 UI 弹「是否覆盖」的选择
+        file.conflicted = true;
+        throw new FileConflictError(file.path, conflict);
+      }
     }
 
     await provider.value!.write({
@@ -184,11 +288,15 @@ export const useFileManagerStore = defineStore("file-manager", () => {
     });
     file.savedContent = file.content;
     file.conflicted = false;
-    if (node) file.mtimeMs = node.mtimeMs;
+    file.error = null;
     await refresh(dirname(file.path));
+    // 必须用磁盘真实 mtime 刷新基线：父目录未展开时 refresh 是空操作，
+    // 若沿用写入前的旧节点 mtime，下一次保存会被误判为「外部修改」而永远冲突。
+    await syncMtime(file);
+    return true;
   }
 
-  /** 放弃本地改动。 */
+  /** 放弃本地改动，回到上次保存时的内容。 */
   function revert(path?: string): void {
     const target = path ?? activePath.value;
     const file = openFiles.value.find((item) => item.path === target);
@@ -301,6 +409,8 @@ export const useFileManagerStore = defineStore("file-manager", () => {
 
   /** 订阅外部变更，自动在根目录注册。 */
   function startWatching(): (() => void) | undefined {
+    // 当前桌面端数据源（ElectronFileProvider）没有实现 watch，这里始终是空操作：
+    // 外部改动不做实时同步，统一在保存时用 stat 比对磁盘 mtime 后提示用户是否覆盖。
     if (!provider.value?.watch) return undefined;
     let queued: string[] = [];
     let timer: ReturnType<typeof setTimeout> | null = null;

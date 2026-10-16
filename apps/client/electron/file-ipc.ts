@@ -49,6 +49,14 @@ interface FileNodePayload {
   mtimeMs: number;
 }
 
+/** 单个路径的元信息。不存在的路径返回 `exists: false`，由渲染层决定怎么提示。 */
+interface FileStatPayload {
+  exists: boolean;
+  type: "file" | "directory";
+  size: number;
+  mtimeMs: number;
+}
+
 async function toPayload(target: string): Promise<FileNodePayload> {
   const stats = await fs.lstat(target);
   return {
@@ -150,5 +158,34 @@ export function registerFileIpc(): void {
   ipcMain.handle("fs:mkdir", async (_event, target: string): Promise<void> => {
     const resolved = safeResolve(target);
     await fs.mkdir(resolved, { recursive: false });
+  });
+
+  /**
+   * 单路径元信息。
+   *
+   * 保存前必须用它拿磁盘的真实 mtime：渲染层缓存的文件树在外部改动后并不会
+   * 自动更新（没有 watcher 时永远不会更新），只比对树节点会把「外部已改」
+   * 误判成「没有冲突」，从而静默覆盖别人的改动。
+   */
+  ipcMain.handle("fs:stat", async (_event, target: string): Promise<FileStatPayload> => {
+    let resolved: string;
+    try {
+      resolved = safeResolve(target);
+    } catch {
+      // 越界路径按「不存在」处理，不把错误细节透给渲染层
+      return { exists: false, type: "file", size: 0, mtimeMs: 0 };
+    }
+
+    try {
+      const stats = await fs.lstat(resolved);
+      return {
+        exists: true,
+        type: stats.isDirectory() ? "directory" : "file",
+        size: stats.size,
+        mtimeMs: stats.mtimeMs,
+      };
+    } catch {
+      return { exists: false, type: "file", size: 0, mtimeMs: 0 };
+    }
   });
 }

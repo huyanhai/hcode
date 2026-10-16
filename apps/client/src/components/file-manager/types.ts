@@ -52,6 +52,14 @@ export interface RemoveOptions {
   recursive?: boolean;
 }
 
+/** 单个路径的元信息，用于保存前的冲突检测。 */
+export interface FileStat {
+  exists: boolean;
+  type: "file" | "directory";
+  size: number;
+  mtimeMs: number;
+}
+
 /**
  * 文件系统访问抽象。
  *
@@ -70,6 +78,14 @@ export interface FileProvider {
   rename(options: RenameOptions): Promise<void>;
   remove(options: RemoveOptions): Promise<void>;
   mkdir(path: string): Promise<void>;
+
+  /**
+   * 查询单个路径的最新元信息。
+   *
+   * 保存前用它对比磁盘与本地记录的 mtime —— 内存中的文件树不会因为外部改动
+   * 自动更新（尤其在没有 `watch` 的实现里），只比树节点会让冲突检测形同虚设。
+   */
+  stat?(path: string): Promise<FileStat>;
 
   /**
    * 订阅外部文件变更（git checkout、其他编辑器保存等）。

@@ -9,6 +9,14 @@ export interface FileNodePayload {
   children?: FileNodePayload[];
 }
 
+/** 单个路径的元信息（fs:stat 返回）。路径不存在时 exists 为 false。 */
+export interface FileStatPayload {
+  exists: boolean;
+  type: "file" | "directory";
+  size: number;
+  mtimeMs: number;
+}
+
 /** 文件管理模块的主进程桥接接口 */
 export interface FileSystemBridge {
   list(path: string, recursive?: boolean): Promise<FileNodePayload[]>;
@@ -17,6 +25,8 @@ export interface FileSystemBridge {
   rename(path: string, newPath: string): Promise<void>;
   remove(path: string, recursive?: boolean): Promise<void>;
   mkdir(path: string): Promise<void>;
+  /** 查询单个路径的最新元信息，用于保存前的冲突检测 */
+  stat(path: string): Promise<FileStatPayload>;
 }
 
 export interface DesktopInfo {

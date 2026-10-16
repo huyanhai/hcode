@@ -9,6 +9,7 @@ const fs = {
   rename: (path: string, newPath: string) => ipcRenderer.invoke('fs:rename', path, newPath),
   remove: (path: string, recursive = false) => ipcRenderer.invoke('fs:remove', path, recursive),
   mkdir: (path: string) => ipcRenderer.invoke('fs:mkdir', path),
+  stat: (path: string) => ipcRenderer.invoke('fs:stat', path),
 }
 
 const desktop: DesktopInfo = {

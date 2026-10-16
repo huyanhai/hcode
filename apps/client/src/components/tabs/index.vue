@@ -34,7 +34,7 @@
             <TabsTrigger
               v-for="item in list"
               :key="item.value"
-              class="flex-none flex w-56 min-w-50 p-2 pl-2 justify-between group/tab shadow-none! hover:bg-muted bg-transparent data-[state=active]:text-foreground!"
+              class="flex-none flex w-56 min-w-50 px-2 py-1.5 pl-2 justify-between group/tab shadow-none! hover:bg-muted bg-transparent data-[state=active]:text-foreground!"
               :value="item.value"
             >
               <div class="flex items-center gap-1 w-1/2 flex-1">

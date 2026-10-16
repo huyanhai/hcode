@@ -4,7 +4,50 @@
     面板会随 tab 动态挂载/卸载，reka splitter 要求每个面板都提供 id + order，
     否则尺寸状态会错乱；组 id 也要与 layout 的 main-layout 区分开。
   -->
-  <ResizablePanelGroup id="file-manager" direction="horizontal" class="fm-root">
+  <header class="flex justify-between items-center p-2 border-b">
+    <Select
+      v-if="rootOptions.length"
+      :model-value="root"
+      @update:model-value="onRootSelect"
+      class="mx-0 flex-none"
+    >
+      <SelectTrigger class="rounded-full shadow" size="sm" :title="root">
+        <SelectValue placeholder="选择目录" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem
+            v-for="option in rootOptions"
+            :key="option.path"
+            :value="option.path"
+            :title="option.path"
+          >
+            {{ option.label }}
+          </SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+    <div class="flex-0">
+      <div class="fm-toolbar fm-content-toolbar">
+        <Button
+          @click="toggleSidebar"
+          variant="outline"
+          size="icon-sm"
+          class="rounded-full shadow"
+        >
+          <PanelLeftClose
+            :size="14"
+            :style="{ transform: sidebarOpen ? 'none' : 'rotate(180deg)' }"
+          />
+        </Button>
+      </div>
+    </div>
+  </header>
+  <ResizablePanelGroup
+    id="file-manager"
+    direction="horizontal"
+    class="fm-root relative"
+  >
     <ResizablePanel
       id="fm-sidebar"
       ref="sidebarRef"
@@ -16,44 +59,16 @@
       :collapsible="true"
       @resize="onSidebarResize"
     >
-      <aside class="h-full">
-        <Select
-          v-if="rootOptions.length"
-          :model-value="root"
-          @update:model-value="onRootSelect"
-        >
-          <SelectTrigger
-            class="rounded-full shadow m-2"
-            size="sm"
-            :title="root"
-          >
-            <SelectValue placeholder="选择目录" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem
-                v-for="option in rootOptions"
-                :key="option.path"
-                :value="option.path"
-                :title="option.path"
-              >
-                {{ option.label }}
-              </SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
-
-        <FileTree
-          :items="store.tree"
-          :expanded="store.expandedPaths"
-          :active-path="store.activePath"
-          :loading-paths="store.loadingPaths"
-          :rowHeight="32"
-          @update:expanded="onExpandedChange"
-          @open="openFile"
-          @contextmenu="onTreeContextMenu"
-        />
-      </aside>
+      <FileTree
+        class="h-full"
+        :items="store.tree"
+        :expanded="store.expandedPaths"
+        :active-path="store.activePath"
+        :loading-paths="store.loadingPaths"
+        :rowHeight="32"
+        @update:expanded="onExpandedChange"
+        @open="openFile"
+      />
     </ResizablePanel>
 
     <!--
@@ -61,43 +76,10 @@
       用 disabled 而不是 v-if —— reka 靠 DOM 查询统计 handle 数量，
       把元素摘掉会让它在布局重算时找不到 handle。
     -->
-    <ResizableHandle
-      class="fm-handle"
-      :disabled="!sidebarOpen"
-      @dragging="isDragging = $event"
-    />
+    <ResizableHandle :disabled="!sidebarOpen" @dragging="isDragging = $event" />
 
-    <ResizablePanel id="fm-editor" :order="1" :min-size="30">
-      <section class="fm-content">
-        <div class="fm-toolbar fm-content-toolbar">
-          <button
-            type="button"
-            class="fm-icon-button"
-            :title="sidebarOpen ? '收起侧栏' : '展开侧栏'"
-            @click="toggleSidebar"
-          >
-            <PanelLeftClose
-              :size="14"
-              :style="{ transform: sidebarOpen ? 'none' : 'rotate(180deg)' }"
-            />
-          </button>
-
-          <span
-            v-if="activeFile"
-            class="fm-active-path"
-            :title="activeFile.path"
-          >
-            {{ activeFile.path }}
-          </span>
-          <span v-else class="fm-active-path fm-placeholder">未打开文件</span>
-
-          <div class="fm-actions">
-            <button type="button" title="保存 (Cmd/Ctrl+S)" @click="save()">
-              <Save :size="14" />
-            </button>
-          </div>
-        </div>
-
+    <ResizablePanel id="fm-editor" :order="1" :min-size="30" class="relative">
+      <div v-if="activeFile" class="h-full">
         <FileTabs
           :files="store.openFiles"
           :active-path="store.activePath"
@@ -105,43 +87,27 @@
           @close="closeTab"
         />
 
-        <div class="fm-editor-wrap">
-          <FileEditor
-            v-if="activeFile"
-            :key="activeFile.path"
-            :file="activeFile"
-            @change="onEditorChange"
-            @save="save(activeFile.path)"
-          />
-          <div v-else class="fm-placeholder-panel">
-            从左侧目录树选择一个文件开始编辑
-          </div>
-        </div>
-
-        <footer v-if="status || store.hasDirtyFiles" class="fm-status">
-          <AlertTriangle
-            v-if="store.hasDirtyFiles"
-            :size="12"
-            class="fm-status-icon"
-          />
-          <ChevronUp v-if="store.hasDirtyFiles" :size="12" />
-          <ChevronDown v-else :size="12" />
-          <span>{{ status || "有未保存的修改" }}</span>
-        </footer>
-      </section>
+        <FileEditor
+          :key="activeFile.path"
+          :file="activeFile"
+          @change="onEditorChange"
+          @save="save(activeFile.path)"
+        />
+      </div>
+      <div
+        v-else
+        class="h-full flex items-center justify-center text-primary text-sm flex-col gap-2"
+      >
+        <File />
+        从工作区目录树中选择文件
+      </div>
     </ResizablePanel>
   </ResizablePanelGroup>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import {
-  AlertTriangle,
-  ChevronDown,
-  ChevronUp,
-  PanelLeftClose,
-  Save,
-} from "lucide-vue-next";
+import { PanelLeftClose, File } from "lucide-vue-next";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -150,9 +116,14 @@ import {
 import FileEditor from "./FileEditor.vue";
 import FileTabs from "./FileTabs.vue";
 import FileTree from "./FileTree.vue";
-import { useFileManagerStore } from "../store";
+import {
+  FileConflictError,
+  useFileManagerStore,
+  type OpenFile,
+} from "../store";
 import type { FileNode, FileProvider, RootOption } from "../types";
 import { basename, dirname, joinPath } from "../utils/path";
+import { useConfirm } from "@/hooks/useConfirm.js";
 
 /** 侧栏最小占比（%），与侧栏面板的 `min-size` 保持一致，低于它就认为已折叠。 */
 const SIDEBAR_MIN_SIZE = 15;
@@ -182,6 +153,7 @@ const emit = defineEmits<{
   (event: "update:root", path: string): void;
 }>();
 
+const { confirm } = useConfirm();
 const store = useFileManagerStore();
 const sidebarOpen = ref(true);
 const sidebarDefaultSize = ref(SIDEBAR_DEFAULT_SIZE);
@@ -287,20 +259,72 @@ function flash(message: string): void {
   }, 2000);
 }
 
+/**
+ * 保存。
+ *
+ * 写入前 store 会比对磁盘的真实 mtime：若磁盘版本比打开时更新（外部改过 / 删过），
+ * 就抛 FileConflictError —— 这里弹确认框由用户决定是否覆盖，而不是静默覆盖别人的改动。
+ */
 async function save(path?: string): Promise<void> {
+  const target = path ?? store.activePath;
+  const file = store.openFiles.find((item) => item.path === target);
+
+  try {
+    status.value = "";
+    // 内容没变化时 store 是空操作，不能提示「已保存」误导用户
+    if (await store.save(path)) flash("已保存");
+  } catch (error) {
+    if (error instanceof FileConflictError) {
+      await resolveConflict(error, target, file);
+      return;
+    }
+    const err = error instanceof Error ? error : new Error(String(error));
+    status.value = err.message;
+    emit("error", err);
+  }
+}
+
+/** 磁盘版本已被外部改动：询问是否用本地内容覆盖。 */
+async function resolveConflict(
+  error: FileConflictError,
+  path: string,
+  file: OpenFile | undefined,
+): Promise<void> {
+  const name = file?.name ?? path.split("/").pop() ?? path;
+
+  const overwrite = await confirm({
+    variant: "destructive",
+    title: error.kind === "deleted" ? "文件已被外部删除" : "文件已被外部修改",
+    description:
+      error.kind === "deleted"
+        ? `${name} 已在磁盘上被删除，继续保存会重新创建该文件。`
+        : `${name} 在磁盘上已被其他程序修改，继续保存会用你的版本覆盖磁盘上的内容。`,
+    confirmText: "覆盖保存",
+    cancelText: "取消",
+  });
+
+  if (!overwrite) {
+    // 保留状态栏提示与标签页红点，用户可继续编辑后再决定
+    status.value = error.message;
+    return;
+  }
+
   await guard(async () => {
-    await store.save(path);
-    flash("已保存");
+    if (await store.save(path, { force: true })) flash("已保存");
   });
 }
 
-function closeTab(path: string): Promise<void> | void {
+async function closeTab(path: string): Promise<void> {
   const file = store.openFiles.find((item) => item.path === path);
   if (!file) return;
   const dirty = file.content !== file.savedContent;
 
   if (dirty && !props.forceClose) {
-    const choice = window.confirm(`${file.name} 有未保存的修改，确定关闭？`);
+    const choice = await confirm({
+      title: "提示",
+      description: `${file.name} 有未保存的修改，确定关闭？`,
+    });
+
     if (!choice) return;
   }
   store.closeFile(path);
@@ -312,77 +336,6 @@ function onEditorChange(content: string): void {
     (item) => item.path === activeFile.value?.path,
   );
   if (file) file.content = content;
-}
-
-function promptCreate(parentPath: string, kind: "file" | "directory"): void {
-  const label = kind === "file" ? "新建文件" : "新建文件夹";
-  const name = window.prompt(`${label}名称`);
-  if (!name?.trim()) return;
-
-  void guard(async () => {
-    const target = joinPath(parentPath, name.trim());
-    if (kind === "file") await store.createFile(parentPath, name.trim());
-    else await store.createDirectory(parentPath, name.trim());
-    flash(`已创建 ${basename(target)}`);
-  });
-}
-
-function promptRename(node: FileNode): void {
-  const next = window.prompt("重命名", node.name);
-  if (!next?.trim() || next.trim() === node.name) return;
-
-  void guard(async () => {
-    await store.renameNode(node.path, next.trim());
-    flash("已重命名");
-  });
-}
-
-function confirmDelete(node: FileNode): void {
-  const label = node.type === "directory" ? "文件夹（含全部内容）" : "文件";
-  if (!window.confirm(`确定删除${label}「${node.name}」？此操作不可撤销。`))
-    return;
-
-  void guard(async () => {
-    await store.removeNode(node.path, node.type === "directory");
-    flash("已删除");
-  });
-}
-
-function onTreeContextMenu(payload: {
-  event: MouseEvent;
-  node: FileNode;
-}): void {
-  const { event, node } = payload;
-  const parent = dirname(node.path);
-  const action = window.prompt(
-    `对「${node.name}」执行操作：\n1 = 重命名\n2 = 删除\n3 = 在同级新建文件\n4 = 在同级新建文件夹`,
-    "1",
-  );
-  event.preventDefault();
-
-  switch (action?.trim()) {
-    case "1":
-      promptRename(node);
-      break;
-    case "2":
-      confirmDelete(node);
-      break;
-    case "3":
-      promptCreate(parent, "file");
-      break;
-    case "4":
-      promptCreate(parent, "directory");
-      break;
-    default:
-      break;
-  }
-}
-
-async function refreshAll(): Promise<void> {
-  await guard(async () => {
-    await store.refresh(store.root);
-    flash("已刷新");
-  });
 }
 
 /** 展开项变化：由 store 补齐新展开目录的子节点（懒加载）。 */
