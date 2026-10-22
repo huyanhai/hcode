@@ -36,7 +36,12 @@ export async function observeSubmission(
     while (!signal?.aborted) {
       const status = await submission.status(BACKGROUND_CONTEXT);
       if (status.status === "done" || status.status === "unanswered") {
-        const finalText = (await latestAnswer()) || answer;
+        // unanswered（失败/中止/过期）：本次提交没有得到回答，
+        // 绝不能拿 latestAnswer 里上一轮的回答冒充，否则前端会出现重复回答
+        const finalText =
+          status.status === "unanswered"
+            ? answer
+            : (await latestAnswer()) || answer;
         // A fast generation can finish before watchEvents starts. Fill the missing suffix from committed entries.
         if (finalText.startsWith(answer) && finalText.length > answer.length)
           emit({

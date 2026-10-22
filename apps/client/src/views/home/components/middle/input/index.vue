@@ -26,6 +26,7 @@
           ref="inputAreaRef"
           v-model="modelData.content"
           :disabled="disabled"
+          :placeholder="sending ? '输入消息，回车排队' : undefined"
           @submit="handleSubmit"
           @paste-image="handlePastedImage"
         />

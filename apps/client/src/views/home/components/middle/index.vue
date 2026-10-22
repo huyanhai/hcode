@@ -108,6 +108,18 @@
                       <div
                         class="mt-1 flex items-center justify-end text-xs text-muted-foreground"
                       >
+                        <span
+                          v-if="message.queued"
+                          class="mr-2 flex items-center gap-1"
+                          :class="
+                            message.queued === 'steer'
+                              ? 'text-orange-600'
+                              : 'text-muted-foreground'
+                          "
+                        >
+                          <CornerDownRight class="size-3" />
+                          {{ message.queued === "steer" ? "已引导" : "排队中" }}
+                        </span>
                         <span class="mr-2">{{
                           formatMessageTime(message.createdAt)
                         }}</span>
@@ -214,6 +226,61 @@
             <MoveDown class="opacity-50" v-else />
           </MessageScrollerButton>
         </MessageScroller>
+        <!-- 忙时排队的待发消息：可引导、编辑或取消，当前回答结束后自动发出 -->
+        <div
+          v-if="sessionPendingMessages.length"
+          class="mb-2 flex flex-col gap-2"
+        >
+          <div
+            v-for="item in sessionPendingMessages"
+            :key="item.id"
+            class="flex items-center gap-1 rounded-2xl border bg-muted/40 py-1.5 pl-4 pr-1.5"
+          >
+            <span class="flex-1 truncate text-sm text-foreground">
+              {{ item.content || `${item.attachments.length} 个附件` }}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              class="shrink-0 px-2 text-muted-foreground"
+              title="立即引导：在当前工具轮结束注入运行"
+              @click="steerPendingMessage(item)"
+            >
+              <CornerDownRight />
+              引导
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button size="icon-sm" variant="ghost" class="shrink-0">
+                  <Ellipsis />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" side="top" class="w-40">
+                <DropdownMenuItem @click="editPendingMessage(item)">
+                  <Pencil />
+                  编辑消息
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  class="text-destructive"
+                  @click="discardPendingMessage(item)"
+                >
+                  <Trash2 />
+                  关闭排队
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              class="shrink-0"
+              title="删除"
+              @click="discardPendingMessage(item)"
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        </div>
         <ApprovalRequest
           v-if="pendingApprovalRequest"
           class="mt-0 mb-4 w-full"
@@ -263,6 +330,7 @@ import {
   streamApprovalResponse,
   streamSessionMessage,
   type SessionDetail,
+  type SessionMessageSummary,
   type ModelProfileSummary,
   type MessageAttachment,
 } from "@/lib/model-profiles-api";
@@ -276,7 +344,15 @@ import {
   useSessionSelection,
 } from "@/stores/session-selection";
 import Markdown from "../../../../components/markdown/index.vue";
-import { Copy, Ellipsis, MessageSquare, MoveDown, Pencil } from "@lucide/vue";
+import {
+  Copy,
+  CornerDownRight,
+  Ellipsis,
+  MessageSquare,
+  MoveDown,
+  Pencil,
+  Trash2,
+} from "@lucide/vue";
 import {
   ResponseProgress,
   type ResponseStreamStatus,
@@ -296,6 +372,13 @@ import MessageAttachments from "./MessageAttachments.vue";
 import InputArea from "./input/InputArea.vue";
 import CommentEditor from "./input/CommentEditor.vue";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import Comment from "./input/Comment.vue";
 import ChangeTabBtn from "../change-tab-btn/index.vue";
 import { cn } from "@/lib/utils.js";
@@ -314,6 +397,24 @@ const inputRef = ref<InstanceType<typeof Input>>();
 const annotationUploadTasks = new Set<Promise<unknown>>();
 
 const sending = ref(false);
+/** 存活流序号集合：事件只由最早的存活流消费，避免多条流的重复事件互相污染气泡 */
+let streamSeq = 0;
+const liveStreamTokens = new Set<number>();
+/** 忙时输入的待发消息（Codex 式排队卡片）：挂在输入框上方，可引导/编辑/取消 */
+type PendingMessage = {
+  id: string;
+  sessionId: string;
+  content: string;
+  attachments: MessageAttachment[];
+  comments: ReturnType<typeof commentPayload>;
+  createdAt: string;
+};
+const pendingMessages = ref<PendingMessage[]>([]);
+const sessionPendingMessages = computed(() =>
+  pendingMessages.value.filter(
+    (item) => !selectedSessionId.value || item.sessionId === selectedSessionId.value,
+  ),
+);
 const webAnnotations = useWebAnnotationStore();
 let processingWebAnnotation = false;
 let abortController: AbortController | undefined;
@@ -505,20 +606,42 @@ async function submit(override?: {
   sessionId: string;
   content: string;
   attachments: MessageAttachment[];
-}) {
+  comments?: ReturnType<typeof commentPayload>;
+  whenBusy?: "followUp" | "steer";
+}): Promise<boolean> {
   const sessionId = override?.sessionId ?? selectedSessionId.value;
   const content = override?.content.trim() ?? data.content.trim();
   // 先同步拿到对象引用：等待上传期间输入框会被清空，
   // 附件/注释对象的上传状态会原地更新，之后按最终状态组装载荷
   const attachmentItems = override ? [] : [...data.attachments];
   const commentItems = override ? [] : [...data.comments];
-  if (!sessionId || sending.value) return;
+  if (!sessionId) return false;
+  // 忙时仅允许向当前正在回复的会话追加消息（排队/引导）；其他会话仍需等待
+  const busy = sending.value && activeSessionId.value === sessionId;
+  if (sending.value && !busy) {
+    toast.error("当前有其他会话正在回复中，请稍候");
+    return false;
+  }
+  // 忙时默认挂起为输入框上方的待发卡片；仅显式引导(steer)立即注入当前运行
+  const steerNow = busy && override?.whenBusy === "steer";
 
   sending.value = true;
   activeSessionId.value = sessionId;
+  const streamToken = ++streamSeq;
+  liveStreamTokens.add(streamToken);
+  /** 事件只由最早的存活流消费：忙时提交的排队/引导流要等前一条流结束后才接管渲染 */
+  const isLeadStream = () => {
+    for (const token of liveStreamTokens) {
+      if (token < streamToken) return false;
+    }
+    return true;
+  };
   let assistantMessageId = "";
+  let userMessageId = "";
+  let assistantInserted = false;
   let attachments = override?.attachments ?? [];
-  let comments: ReturnType<typeof commentPayload> = [];
+  let comments: ReturnType<typeof commentPayload> =
+    override?.comments ?? [];
   try {
     if (!override) {
       // 等在途上传（附件/批注截图）落地：成功的随消息发出，失败的就地标记 error
@@ -540,31 +663,49 @@ async function submit(override?: {
       );
       comments = commentPayload(commentItems, uploadedIds);
       // 附件全部上传失败且没有文字/注释时无事可发
-      if (!content && !attachments.length && !comments.length) return;
+      if (!content && !attachments.length && !comments.length) return false;
       // 点了发送：清空网页上的批注标记并退出审查模式
       void runInActiveWebview("window.clearWebAnnotation?.()");
     }
     const current = override
       ? queryClient.getQueryData<SessionDetail>(["session", sessionId])
       : sessionQuery.data.value;
-    const userMessageId = crypto.randomUUID();
+    userMessageId = crypto.randomUUID();
     assistantMessageId = crypto.randomUUID();
-    const userMessage = {
+    if (busy && !steerNow) {
+      // Codex 式排队：挂起为待发卡片，当前回答结束后自动发出
+      pendingMessages.value = [
+        ...pendingMessages.value,
+        {
+          id: userMessageId,
+          sessionId,
+          content,
+          attachments,
+          comments,
+          createdAt: String(Date.now()),
+        },
+      ];
+      return true;
+    }
+    const whenBusy = steerNow ? "steer" : undefined;
+    const userMessage: SessionMessageSummary = {
       id: userMessageId,
       sessionId,
       turnId: null,
-      role: "user" as const,
+      role: "user",
       content,
       attachments,
       comments,
+      // 忙时引导：标记已引导，服务端持久化后会随刷新替换为真实消息
+      ...(whenBusy ? { queued: whenBusy } : {}),
       sequence: (current?.messages.at(-1)?.sequence ?? 0) + 1,
       createdAt: String(Date.now()),
     };
-    const assistantMessage = {
+    const assistantMessage: SessionMessageSummary = {
       id: assistantMessageId,
       sessionId,
       turnId: null,
-      role: "assistant" as const,
+      role: "assistant",
       content: "",
       reasoning: "",
       toolCalls: [] as ResponseToolCall[],
@@ -574,11 +715,40 @@ async function submit(override?: {
       sequence: userMessage.sequence + 1,
       createdAt: String(Date.now()),
     };
-    queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
-      old
-        ? { ...old, messages: [...old.messages, userMessage, assistantMessage] }
-        : old,
-    );
+    if (whenBusy) {
+      // 忙时引导：先只插入用户气泡，助手气泡等前一条流
+      // 结束、真正开始渲染本条消息的事件时再插入
+      queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
+        old ? { ...old, messages: [...old.messages, userMessage] } : old,
+      );
+    } else {
+      queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) =>
+        old
+          ? {
+              ...old,
+              messages: [...old.messages, userMessage, assistantMessage],
+            }
+          : old,
+      );
+      assistantInserted = true;
+    }
+    const ensureAssistantMessage = () => {
+      if (assistantInserted) return;
+      assistantInserted = true;
+      queryClient.setQueryData<SessionDetail>(["session", sessionId], (old) => {
+        if (!old) return old;
+        const index = old.messages.findIndex(
+          (message) => message.id === userMessageId,
+        );
+        const messages = [...old.messages];
+        messages.splice(
+          index >= 0 ? index + 1 : messages.length,
+          0,
+          assistantMessage,
+        );
+        return { ...old, messages };
+      });
+    };
     abortController = new AbortController();
     await streamSessionMessage(
       sessionId,
@@ -589,8 +759,11 @@ async function submit(override?: {
         profileId: defaultProfile.value?.id,
         model: data.model || undefined,
         fullAccess: data.fullAccess,
+        whenBusy,
       },
       (event: PiStreamEvent) => {
+        if (!isLeadStream()) return;
+        ensureAssistantMessage();
         return updateStreamMessage(sessionId, assistantMessageId, event);
       },
       abortController.signal,
@@ -600,9 +773,10 @@ async function submit(override?: {
       mergeTransientAssistantState(detail, old, assistantMessageId),
     );
     await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    return true;
   } catch (error) {
     const stopped = abortController?.signal.aborted ?? false;
-    if (assistantMessageId) {
+    if (assistantInserted) {
       updateMessageStatus(
         sessionId,
         assistantMessageId,
@@ -613,11 +787,74 @@ async function submit(override?: {
     if (!stopped) {
       toast.error(error instanceof Error ? error.message : "发送消息失败");
     }
+    return false;
   } finally {
+    liveStreamTokens.delete(streamToken);
     abortController = undefined;
-    sending.value = false;
-    if (activeSessionId.value === sessionId) activeSessionId.value = "";
+    sending.value = liveStreamTokens.size > 0;
+    if (
+      !liveStreamTokens.size &&
+      activeSessionId.value === sessionId
+    ) {
+      activeSessionId.value = "";
+    }
+    // 当前 run 结束且会话空闲：把排队的待发消息按序发出
+    if (!sending.value) void flushPendingMessages(sessionId);
   }
+}
+
+/** 会话空闲后按序发出排队的待发消息；某条失败则放回队首并停止 */
+async function flushPendingMessages(sessionId: string) {
+  while (!sending.value) {
+    const index = pendingMessages.value.findIndex(
+      (item) => item.sessionId === sessionId,
+    );
+    if (index < 0) return;
+    const [item] = pendingMessages.value.splice(index, 1);
+    const ok = await submit({
+      sessionId,
+      content: item.content,
+      attachments: item.attachments,
+      comments: item.comments,
+    });
+    if (!ok) {
+      pendingMessages.value = [item, ...pendingMessages.value];
+      return;
+    }
+  }
+}
+
+/** 待发卡片「引导」：立即作为 steer 注入当前运行 */
+async function steerPendingMessage(item: PendingMessage) {
+  removePendingMessage(item.id);
+  const ok = await submit({
+    sessionId: item.sessionId,
+    content: item.content,
+    attachments: item.attachments,
+    comments: item.comments,
+    whenBusy: "steer",
+  });
+  if (!ok) {
+    // 引导失败（如会话已空闲、其他会话占用）：放回待发卡片
+    pendingMessages.value = [item, ...pendingMessages.value];
+  }
+}
+
+/** 待发卡片「编辑消息」：内容放回输入框 */
+function editPendingMessage(item: PendingMessage) {
+  removePendingMessage(item.id);
+  data.content = item.content;
+}
+
+/** 待发卡片「关闭排队/删除」：丢弃待发消息 */
+function discardPendingMessage(item: PendingMessage) {
+  removePendingMessage(item.id);
+}
+
+function removePendingMessage(id: string) {
+  pendingMessages.value = pendingMessages.value.filter(
+    (item) => item.id !== id,
+  );
 }
 
 watch(
@@ -1236,14 +1473,24 @@ function updateStreamMessage(
       messages: old.messages.map((message) => {
         if (message.id !== messageId) return message;
         if (event.type === "hcode.done") {
+          // 模型没有产出任何内容（如限流导致生成失败）：按失败处理，
+          // 避免留下一个空的"已完成"气泡
+          const produced = Boolean(
+            event.text ||
+              message.content ||
+              message.timeline?.length ||
+              message.toolCalls?.length,
+          );
           return {
             ...message,
-            streamStatus: event.awaitingApproval
-              ? "awaiting-approval"
-              : "completed",
+            streamStatus:
+              !event.awaitingApproval && !produced ? "failed" : event.awaitingApproval ? "awaiting-approval" : "completed",
             // Thinking is transient and must never survive a completed run.
             reasoning: "",
             retrying: undefined,
+            ...(!event.awaitingApproval && !produced
+              ? { content: message.content || "模型没有返回内容，请重试" }
+              : {}),
             ...(event.awaitingApproval
               ? {}
               : { completedAt: String(Date.now()) }),

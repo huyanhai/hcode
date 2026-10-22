@@ -74,6 +74,8 @@ export type SessionMessageSummary = {
   streamStatus?: ResponseStreamStatus;
   /** In-flight auto-retry state; cleared once auto_retry_end arrives. */
   retrying?: { attempt: number; errorMessage?: string };
+  /** 忙时提交的瞬态标记：排队(followUp)或引导(steer)；会话刷新后被服务端持久化消息替换 */
+  queued?: "followUp" | "steer";
   startedAt?: string;
   completedAt?: string;
 };
