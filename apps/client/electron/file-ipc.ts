@@ -26,7 +26,7 @@ export function setAllowedRoots(roots: string[]): void {
  * 归一化用 realpath 会解析符号链接，这里先做逻辑归一化（resolve）保证
  * `..` 无法逃逸，再对已存在的路径用 lstat 确认不是软链。
  */
-function safeResolve(input: string): string {
+export function safeResolve(input: string): string {
   const resolved = path.resolve(input);
 
   if (allowedRoots.size > 0) {

@@ -14,11 +14,19 @@
     >
       <slot name="left" />
     </ResizablePanel>
-    <!-- 折叠后 handle 禁用 + 宽度清零：不允许拖拽直接展开，只能通过顶部图标走 expand() -->
+    <!--
+      :disabled 的两个约束（缺一不可）：
+      1) 拖拽进行中绝不能禁用 —— reka 在 disabled 变化时会注销该 handle 的全局拖拽监听，
+         导致松手时 dragging:false 丢失、isBusy 卡死，展开图标被 watch 守卫吞掉；
+      2) 折叠态必须禁用 —— reka 的命中判定是「handle rect ±5px」，零宽 handle 常驻注册时
+         会和相邻的 handle（如内嵌文件面板的分割线）同时被命中，拖 A 会连带拖 B。
+      所以用 `折叠 && 非拖拽中` 作为条件：拖拽期间保持注册（事件完整），
+      松手后再注销（不留下幽灵命中区）。
+    -->
     <ResizableHandle
       class="layout-handle mt-20 mb-10 opacity-0"
       :class="!left && 'is-collapsed'"
-      :disabled="!left"
+      :disabled="!left && !isBusy"
       @dragging="isBusy = $event"
     />
     <ResizablePanel
@@ -33,7 +41,7 @@
     <ResizableHandle
       class="layout-handle mt-20 mb-2 opacity-0"
       :class="!right && 'is-collapsed'"
-      :disabled="!right"
+      :disabled="!right && !isBusy"
       @dragging="isBusy = $event"
     />
     <ResizablePanel
@@ -156,17 +164,21 @@ function collapsedRight(size: number) {
 function collapsedBottom(size: number) {
   if (size < 20) {
     bottom.value = false;
-    guardSplitter(() => leftPanelRef.value?.collapse());
+    // 注意：当前布局暂无 bottom 面板，勿误调 leftPanelRef（历史复制粘贴错误已移除）
   }
 }
 
 function panelResize(size: number, type: PanelType) {
+  // 面板被外层压成 0 宽时可能算出 NaN/Infinity，直接忽略，避免污染 default-size
+  if (!Number.isFinite(size)) return;
+
   if (type === PanelType.LEFT) {
-    leftDefaultSize.value = size;
+    // 只在展开态记录默认宽度，避免折叠时的 0/极小值污染 default-size
+    if (size >= 20) leftDefaultSize.value = size;
     collapsedLeft(size);
   }
   if (type === PanelType.RIGHT) {
-    rightDefaultSize.value = size;
+    if (size >= 20) rightDefaultSize.value = size;
     collapsedRight(size);
   }
 

@@ -72,6 +72,8 @@ export type SessionMessageSummary = {
   toolCalls?: ResponseToolCall[];
   timeline?: ResponseTimelineItem[];
   streamStatus?: ResponseStreamStatus;
+  /** In-flight auto-retry state; cleared once auto_retry_end arrives. */
+  retrying?: { attempt: number; errorMessage?: string };
   startedAt?: string;
   completedAt?: string;
 };

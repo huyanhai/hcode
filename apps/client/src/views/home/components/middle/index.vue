@@ -154,6 +154,17 @@
                   <Thinking
                     v-if="
                       !isStreamFinished(message.streamStatus) &&
+                      message.retrying
+                    "
+                    single-line
+                    class="text-amber-500"
+                    :title="message.retrying.errorMessage ?? ''"
+                  >
+                    {{ retryingLabel(message.retrying) }}
+                  </Thinking>
+                  <Thinking
+                    v-if="
+                      message.streamStatus === 'thinking' &&
                       latestReasoning(message.reasoning)
                     "
                     single-line
@@ -1232,6 +1243,7 @@ function updateStreamMessage(
               : "completed",
             // Thinking is transient and must never survive a completed run.
             reasoning: "",
+            retrying: undefined,
             ...(event.awaitingApproval
               ? {}
               : { completedAt: String(Date.now()) }),
@@ -1242,6 +1254,7 @@ function updateStreamMessage(
             ...message,
             streamStatus: "failed",
             reasoning: "",
+            retrying: undefined,
             // 把真实失败原因留在气泡里，方便用户看到为什么发送失败
             content: event.message || message.content,
             completedAt: String(Date.now()),
@@ -1254,13 +1267,21 @@ function updateStreamMessage(
           // Pi thinking is an in-flight detail, never part of the completed UI.
           return { ...message, reasoning: "" };
         }
-        const next = {
-          ...message,
-          streamStatus:
-            message.streamStatus === "thinking"
-              ? "streaming"
-              : message.streamStatus,
-        };
+        // "thinking" 状态保持到真正开始产出正文（text/toolcall delta，
+        // 由 applyMessageChanges 翻转为 "streaming"），避免回答阶段残留思考气泡
+        const next = { ...message };
+        if (event.type === "auto_retry_start") {
+          return {
+            ...next,
+            retrying: {
+              attempt: event.attempt,
+              errorMessage: event.errorMessage,
+            },
+          };
+        }
+        if (event.type === "auto_retry_end") {
+          return { ...next, retrying: undefined };
+        }
         if (event.type === "message_update") {
           return applyMessageChanges(next, event.changes);
         }
@@ -1381,6 +1402,8 @@ function applyMessageChanges(
     if (change.type === "text_delta") {
       next = {
         ...next,
+        // 正文开始输出，思考阶段结束
+        streamStatus: "streaming",
         content: `${next.content}${change.delta}`,
         timeline: appendTimelineText(next.timeline, change.delta),
       };
@@ -1401,6 +1424,8 @@ function applyMessageChanges(
       };
       next = {
         ...next,
+        // 开始调用工具同样意味着思考阶段结束
+        streamStatus: "streaming",
         toolCalls: [...(next.toolCalls ?? []), toolCall],
         timeline: appendTimelineTool(next.timeline, toolCall),
       };
@@ -1611,6 +1636,28 @@ function finalResponseContent(
 
 function isStreamFinished(status: ResponseStreamStatus | undefined): boolean {
   return ["completed", "failed", "stopped"].includes(status ?? "completed");
+}
+
+/** 自动重试提示文案：带上错误摘要，鼠标悬停 title 显示完整错误 */
+function retryingLabel(retrying: { attempt: number; errorMessage?: string }) {
+  const reason = shortRetryError(retrying.errorMessage);
+  return `模型请求失败，第 ${retrying.attempt} 次自动重试中${reason ? `：${reason}` : "…"}`;
+}
+
+function shortRetryError(message: string | undefined): string {
+  if (!message) return "";
+  // 原始错误形如 `xxx API error (429): {"message":"...","code":"rate_limit_exceeded"...}`
+  // 优先提取 JSON body 里的 message，取不到就原样截断
+  const jsonMatch = message.match(/(\{[\s\S]*\})/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]) as { message?: string };
+      if (parsed.message) return parsed.message;
+    } catch {
+      // fall through to plain truncation
+    }
+  }
+  return message.length > 80 ? `${message.slice(0, 80)}…` : message;
 }
 
 function latestReasoning(value: string | undefined): string {

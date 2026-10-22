@@ -28,7 +28,83 @@
       </SelectContent>
     </Select>
     <div class="flex-0">
-      <div class="fm-toolbar fm-content-toolbar">
+      <div class="flex gap-2">
+        <ButtonGroup v-if="store.activePath">
+          <!--
+            分裂按钮（split button）：主按钮 = 上次选的打开方式，点击直接执行；
+            箭头 = 打开菜单换选项。菜单里选中即记住（RadioGroup）并立刻执行。
+          -->
+          <Button
+            class="rounded-full shadow gap-1.5"
+            variant="outline"
+            size="sm"
+            :title="selectedOpenWith.label"
+            @click="runSelectedOpenWith"
+          >
+            <img
+              v-if="selectedOpenWith.icon"
+              :src="selectedOpenWith.icon"
+              class="size-4 shrink-0 object-contain"
+              alt=""
+            />
+            <component
+              :is="selectedOpenWith.fallbackIcon"
+              v-else-if="selectedOpenWith.fallbackIcon"
+              :size="16"
+            />
+            {{ selectedOpenWith.label }}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger as-child class="rounded-full shadow">
+              <Button variant="outline" size="icon-sm">
+                <ChevronDown />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" class="w-40">
+              <DropdownMenuRadioGroup v-model="rememberedOpenWith">
+                <DropdownMenuRadioItem
+                  v-for="app in availableApps"
+                  :key="app.name"
+                  :value="app.name"
+                  @select="openWith(app.name)"
+                >
+                  <img
+                    v-if="appIcons[app.name]"
+                    :src="appIcons[app.name]"
+                    class="size-5 shrink-0 object-contain"
+                    alt=""
+                  />
+                  <component :is="app.icon" v-else :size="18" />
+                  {{ app.label }}
+                  <template #indicator-icon>
+                    <Check class="size-3" />
+                  </template>
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="default" @select="openDefault">
+                  <img
+                    v-if="defaultAppIcon"
+                    :src="defaultAppIcon"
+                    class="size-5 shrink-0 object-contain"
+                    alt=""
+                  />
+                  <AppWindow v-else :size="20" />
+                  Default app
+                  <template #indicator-icon>
+                    <Check class="size-3" />
+                  </template>
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <!-- 一次性动作：不参与「记住上次选择」 -->
+                <DropdownMenuItem @click="revealInFolder">
+                  打开所在文件夹
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </ButtonGroup>
+
         <Button
           @click="toggleSidebar"
           variant="outline"
@@ -72,11 +148,20 @@
     </ResizablePanel>
 
     <!--
-      折叠后分割线一并禁用并隐藏：此时唯一能恢复的方式是点工具栏的展开按钮。
-      用 disabled 而不是 v-if —— reka 靠 DOM 查询统计 handle 数量，
-      把元素摘掉会让它在布局重算时找不到 handle。
+      :disabled = `折叠 && 非拖拽中`，两个约束缺一不可：
+      1) 拖拽期间不能禁用：reka 在 disabled 变化时会注销 handle 的全局拖拽监听，
+         松手时 dragging:false 丢失 → isDragging 卡死 → 展开按钮被 watch 守卫吞掉；
+      2) 折叠后必须禁用：reka 命中判定是「handle rect ±5px」，侧栏折叠后本条分割线
+         紧贴主布局的分割线（相距仅内边距），常驻注册会让两条线被同一次 pointerdown
+         同时命中，拖主布局的线会连带把文件面板拽开。
+      仍保留节点本身 —— reka 靠 DOM 查询统计 handle 数量，摘掉元素会让布局重算找不到它。
     -->
-    <ResizableHandle :disabled="!sidebarOpen" @dragging="isDragging = $event" />
+    <ResizableHandle
+      class="fm-handle"
+      :class="!sidebarOpen && 'is-collapsed'"
+      :disabled="!sidebarOpen && !isDragging"
+      @dragging="isDragging = $event"
+    />
 
     <ResizablePanel id="fm-editor" :order="1" :min-size="30" class="relative">
       <div v-if="activeFile" class="h-full">
@@ -106,8 +191,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { PanelLeftClose, File } from "lucide-vue-next";
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from "vue";
+import {
+  AppWindow,
+  Check,
+  ChevronDown,
+  CodeXml,
+  File,
+  Hammer,
+  PanelLeftClose,
+  SquareTerminal,
+  Terminal,
+} from "lucide-vue-next";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu/index";
 import {
   ResizableHandle,
   ResizablePanel,
@@ -122,7 +226,6 @@ import {
   type OpenFile,
 } from "../store";
 import type { FileNode, FileProvider, RootOption } from "../types";
-import { basename, dirname, joinPath } from "../utils/path";
 import { useConfirm } from "@/hooks/useConfirm.js";
 
 /** 侧栏最小占比（%），与侧栏面板的 `min-size` 保持一致，低于它就认为已折叠。 */
@@ -160,6 +263,100 @@ const sidebarDefaultSize = ref(SIDEBAR_DEFAULT_SIZE);
 const isDragging = ref(false);
 const status = ref("");
 const stopWatch = ref<(() => void) | undefined>(undefined);
+
+/**
+ * 「打开」菜单的候选应用。
+ * `name` 必须与 macOS /Applications 下的 .app 名一致；检测到已安装才显示。
+ * Terminal 由系统自带（/System/Applications/Utilities），正常都会命中。
+ */
+const CANDIDATE_APPS = [
+  { name: "Visual Studio Code", label: "VS Code", icon: CodeXml },
+  { name: "Warp", label: "Warp", icon: SquareTerminal },
+  { name: "Xcode", label: "Xcode", icon: Hammer },
+  { name: "Terminal", label: "Terminal", icon: Terminal },
+];
+
+/** 应用检测结果（name → 安装状态 + 系统图标 dataURL），挂载时从主进程检测一次。 */
+type ShellBridge = NonNullable<Window["desktop"]>["shell"];
+type InstalledAppPayload = Awaited<
+  ReturnType<ShellBridge["installedApps"]>
+>["apps"][string];
+const installedApps = ref<Record<string, InstalledAppPayload>>({});
+const defaultAppIcon = ref<string | null>(null);
+/** 当前工作区的 GitHub 仓库主页；不是 git 仓库 / 非 GitHub 远端时为 null，菜单隐藏该项。 */
+const githubUrl = ref<string | null>(null);
+
+const availableApps = computed(() =>
+  CANDIDATE_APPS.filter((app) => installedApps.value[app.name]?.installed),
+);
+
+//#region 打开方式分裂按钮（split button）
+/**
+ * 上次选择的打开方式：应用名或 "default"。
+ * 菜单里选中即记住并立刻执行；之后点主按钮就直接执行记住的方式。
+ * 持久化到 localStorage，重启后仍生效。
+ */
+const OPEN_WITH_STORAGE_KEY = "file-manager.open-with";
+const rememberedOpenWith = ref<string>("default");
+try {
+  const saved = localStorage.getItem(OPEN_WITH_STORAGE_KEY);
+  if (saved) rememberedOpenWith.value = saved;
+} catch {
+  // localStorage 不可用（隐私模式等）就用默认值
+}
+watch(rememberedOpenWith, (value) => {
+  try {
+    localStorage.setItem(OPEN_WITH_STORAGE_KEY, value);
+  } catch {
+    // 写不进去就算了，不影响本次会话
+  }
+});
+
+/** 主按钮当前展示的打开方式；记住的应用已卸载/未安装时回退 Default app。 */
+const selectedOpenWith = computed<{
+  label: string;
+  icon: string | null;
+  fallbackIcon: Component | null;
+}>(() => {
+  const name = rememberedOpenWith.value;
+  if (name !== "default") {
+    const app = availableApps.value.find((item) => item.name === name);
+    if (app)
+      return {
+        label: app.label,
+        icon: appIcons.value[app.name] ?? null,
+        fallbackIcon: app.icon as Component,
+      };
+  }
+  return {
+    label: "Default app",
+    icon: defaultAppIcon.value,
+    fallbackIcon: AppWindow as Component,
+  };
+});
+
+/** 点主按钮：直接执行记住的打开方式（应用失效时兜底系统默认应用）。 */
+function runSelectedOpenWith(): void {
+  const name = rememberedOpenWith.value;
+  if (
+    name !== "default" &&
+    availableApps.value.some((item) => item.name === name)
+  ) {
+    openWith(name);
+  } else {
+    openDefault();
+  }
+}
+//#endregion
+
+/** 应用系统图标（dataURL），没有提取成功时返回 null 由模板回退到内置线条图标。 */
+const appIcons = computed<Record<string, string>>(() =>
+  Object.fromEntries(
+    Object.entries(installedApps.value)
+      .filter(([, info]) => info.icon)
+      .map(([name, info]) => [name, info.icon as string]),
+  ),
+);
 
 const sidebarRef = useTemplateRef<typeof ResizablePanel>("sidebarRef");
 
@@ -200,6 +397,8 @@ function guardSplitter(action: () => void, retries = 10): void {
  * 必须把开关置为 false —— 否则下次点按钮会以为「本来就是展开的」而先折叠一次。
  */
 function onSidebarResize(size: number): void {
+  // 宿主把面板压成 0 宽时这里可能收到 NaN/Infinity，忽略以免误判开关状态
+  if (!Number.isFinite(size)) return;
   if (size < SIDEBAR_MIN_SIZE) {
     sidebarOpen.value = false;
     return;
@@ -233,6 +432,24 @@ onMounted(async () => {
     const err = error instanceof Error ? error : new Error(String(error));
     status.value = `初始化失败：${err.message}`;
     emit("error", err);
+  }
+});
+
+/** 检测外部应用安装情况与 git 远端，决定「打开」菜单显示哪些项。 */
+onMounted(async () => {
+  const bridge = window.desktop?.shell;
+  if (!bridge) return;
+  try {
+    const [appsResult, url] = await Promise.all([
+      bridge.installedApps(CANDIDATE_APPS.map((app) => app.name)),
+      bridge.githubUrl(props.root),
+    ]);
+    installedApps.value = appsResult.apps;
+    defaultAppIcon.value = appsResult.defaultAppIcon;
+    githubUrl.value = url;
+  } catch (error) {
+    // 检测失败只影响菜单项显隐，不阻断文件面板
+    console.warn("[file-manager] 「打开」菜单初始化失败", error);
   }
 });
 
@@ -348,6 +565,21 @@ function openFile(path: string): void {
   void guard(() => store.openFile(path));
 }
 
+/** 用外部应用（VS Code / Warp / Xcode / Terminal）打开当前工作区。 */
+function openWith(appName: string): void {
+  void window.desktop?.shell.openWithApp(appName, store.activePath);
+}
+
+/** 用系统默认应用打开目录（目录即 Finder）。 */
+function openDefault(): void {
+  void window.desktop?.shell.openPath(store.activePath);
+}
+
+/**打开文件所在位置 */
+function revealInFolder(): void {
+  void window.desktop?.shell?.showItemInFolder(store.activePath);
+}
+
 /** 有未保存改动时拦截关闭，与主流编辑器一致。 */
 function onBeforeUnload(event: BeforeUnloadEvent): void {
   if (!store.hasDirtyFiles) return;
@@ -360,3 +592,13 @@ onBeforeUnmount(() =>
   window.removeEventListener("beforeunload", onBeforeUnload),
 );
 </script>
+
+<style scoped>
+/* 折叠态 handle：宽度（含 after 伪元素命中区）清零并禁用指针事件。
+   不用 disabled —— 那会让 reka 注销全局拖拽监听，dragging:false 丢失导致 isDragging 卡死 */
+.fm-handle.is-collapsed {
+  width: 0;
+  min-width: 0;
+  pointer-events: none;
+}
+</style>

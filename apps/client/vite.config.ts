@@ -103,7 +103,7 @@ export default defineConfig(({ command, mode }) => ({
       "/api": "http://localhost:3000",
     },
   },
-  preview: { host: "127.0.0.1", port: 4173 },
+  preview: { host: "127.0.0.1", port: 5300 },
   build: {
     outDir: "dist/renderer",
     emptyOutDir: true,

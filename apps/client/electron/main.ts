@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, webContents } from "electron";
 import { join } from "node:path";
 import { registerFileIpc } from "./file-ipc";
+import { registerShellIpc } from "./shell-ipc";
 
 /**
  * webview 截图必须在主进程执行：
@@ -153,6 +154,8 @@ app
     // 文件面板（src/components/file-manager）的本地 fs 通道。
     // 注册在 select-directory 之后：用户选定的目录即可作为文件树根目录。
     registerFileIpc();
+    // 文件面板「打开」菜单：用 VS Code / Terminal 等外部应用打开工作区
+    registerShellIpc();
     Menu.setApplicationMenu(
       Menu.buildFromTemplate([
         ...(process.platform === "darwin"

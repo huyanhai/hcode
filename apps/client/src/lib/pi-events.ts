@@ -35,6 +35,15 @@ export type PiAgentEvent =
   | { type: "compaction_start"; taskId: string; reason: string; blocking: boolean }
   | { type: "compaction_end"; taskId: string; reason: string };
 
+export type PiAutoRetryEvent =
+  | {
+      type: "auto_retry_start";
+      attempt: number;
+      at: number;
+      errorMessage?: string;
+    }
+  | { type: "auto_retry_end"; attempt?: number };
+
 export type HcodeApprovalEvent = {
   type: "hcode.approval_requested";
   approvalId: string;
@@ -56,6 +65,7 @@ export type HcodeErrorEvent = {
 
 export type PiStreamEvent =
   | PiAgentEvent
+  | PiAutoRetryEvent
   | HcodeApprovalEvent
   | HcodeDoneEvent
   | HcodeErrorEvent;
